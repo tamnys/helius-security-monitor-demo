@@ -151,6 +151,12 @@ integer lamport values.
 4. Configure the webhook's authorization value to match `WEBHOOK_AUTH`.
 5. Confirm deliveries are successful in the dashboard.
 
+For a temporary development endpoint, run `bash scripts/https-tunnel.sh` in
+the same Linux container as the bot, with the same `PORT`. The helper downloads
+a pinned Cloudflare tunnel binary, verifies its SHA-256 digest, and prints a
+public HTTPS URL. Keep it running and append `/webhook` when configuring Helius.
+Runtime auto-update is disabled.
+
 The receiver expects the JSON array used by raw webhooks, with each transaction's
 signature at `transaction.signatures[0]`. It returns 403 for a wrong
 authorization header. It commits valid signatures to SQLite before returning
