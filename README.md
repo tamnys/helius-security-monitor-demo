@@ -3,233 +3,243 @@
 Design for a minimal Solana devnet proof of concept accompanying the Helius
 article **Detect and Contain Security Threats with Helius**.
 
-The example uses a SOL vault, a compromised application admin, a Helius raw
-webhook, and an emergency upgrade to a prebuilt program that rejects every
-instruction. This repository starts with the agreed design; the sections below
-specify the implementation and its acceptance criteria.
+A compromised application admin changes a SOL vault's authorized withdrawer.
+A Helius raw webhook notifies an automated bot, which checks an approval
+registry and submits a built-in `pause` instruction for an unapproved change.
+The bot has a separate pause authority. The admin cannot replace that authority
+or unpause the vault.
+
+This repository currently specifies the design and acceptance criteria.
 
 ## What the demo must prove
 
-An admin change can be valid under the program's signature checks while
-violating the operator's approval policy. When the monitor receives that change
-through a real Helius webhook, it uses a separate upgrade authority to replace
-the program. A subsequent withdrawal fails and the vault retains its funds.
+A transaction can pass the program's admin signature check while violating
+the operator's approval policy. When a real Helius webhook delivers an
+unapproved admin change, the bot pauses the vault. A subsequent withdrawal
+fails and the funds remain in the vault.
 
-This demonstrates containment when the upgrade takes effect before withdrawal.
-It does not demonstrate guaranteed protection against a fast attacker.
+Containment must land before withdrawal. The demo does not promise that the
+bot can win every race.
 
-## On-chain programs
+## Vault program
 
-### Vault program
-
-Use a small Rust program with a program-owned PDA that stores the admin and
-authorized withdrawer and holds devnet SOL. Keeping SOL in a program-owned
-account makes the outgoing-funds path easy to inspect.
+Use a small Rust program with a program-owned PDA that holds devnet SOL and
+stores `admin`, `withdrawer`, `pause_authority`, and `paused`. Each run uses
+a fresh vault identity so a paused vault never needs resetting.
 
 | Instruction | Behavior |
 | --- | --- |
-| `initialize` | Create the vault once, recording the admin and initial withdrawer. |
-| `set_withdrawer` | Require the stored admin's signature and replace the withdrawer. |
-| `withdraw` | Require the current withdrawer's signature and transfer the requested spendable lamports to that same account, preserving rent. |
+| `initialize` | Authenticated, create-once initialization sets the admin, withdrawer, and pause authority, with `paused = false`. |
+| `set_withdrawer` | Require the stored admin's signature and an unpaused vault; update only the withdrawer. |
+| `withdraw` | Require an unpaused vault and the current withdrawer's signature; transfer the requested spendable lamports to that withdrawer while preserving rent. |
+| `pause` | Require the stored pause authority's signature; set `paused = true`. Repeated authorized calls succeed without further effect. |
 
-Funding uses a normal System Program transfer to the vault. There is no token
-mint, exchange rate, price oracle, multisig, dashboard, or admin-transfer
-instruction.
+The pause authority must be distinct from the admin and withdrawer. Preserve
+this separation when changing the withdrawer. Passing an account whose public
+key matches the pause authority is insufficient: it must actually sign.
 
-Administrative changes in this demo are direct, top-level instructions.
+There is no unpause instruction, pause-authority setter, generic configuration
+overwrite, or vault close/reset instruction. Initialization must not be
+repeatable against an existing vault. Validate the intended vault identity,
+PDA seeds, ownership, and initialized state on every relevant instruction;
+a caller must not substitute an unpaused account to withdraw from a paused one.
+
+Every outgoing-funds path must enforce the pause flag. The demo has only one:
+`withdraw`. Admin changes also stop while paused. Funding uses a normal System
+Program transfer; outsiders can still send SOL into a paused vault, where it
+will remain locked under this program.
+
+Administrative changes in the demo are direct, top-level instructions.
 Enforce that restriction in `set_withdrawer`; do not silently ignore admin
 changes made through cross-program invocation. Supporting Squads or other CPI
-callers would require extending both the program and monitor deliberately.
+callers would require extending the program and monitor deliberately.
 
-The application admin cannot sign for the vault PDA or change the program's
-upgrade authority. It can redirect withdrawal permission, which is sufficient
-to model the compromise.
-
-### Freeze program
-
-Build a separate minimal binary whose entrypoint always returns a distinct
-`Frozen` custom error before changing accounts. Upgrade the existing program
-ID to this binary; do not deploy it as a different program and call that a
-freeze.
-
-The upgrade leaves the vault account and its lamports in place. It blocks all
-instructions to the upgraded program, including initialization, admin changes,
-and withdrawals. It does not prevent unrelated accounts from sending SOL into
-the vault.
-
-## Separate authorities
+## Authorities and trust assumptions
 
 | Role | Authority |
 | --- | --- |
-| Application admin | Change the vault's authorized withdrawer. The attack script acts with this compromised key. |
+| Application admin | Change the withdrawer while the vault is active. The attack script uses this compromised key. |
 | Legitimate withdrawer | Withdraw before compromise. |
 | Attacker | Receive withdrawal permission and attempt to drain the vault. |
-| Upgrade authority / responder | Replace the executable program through Solana's upgradeable loader. |
-| Approval operator | Register approved transactions locally before they are broadcast. |
+| Bot / pause authority | Pause the vault. This authority grants no withdrawal, unpause, configuration, or program-upgrade permission. |
+| Approval operator | Register legitimate transactions locally before broadcast. |
+| Deployment upgrade authority | Replace the program's code; kept separate from the admin and bot and unused during containment. |
 
-Use separate application-admin and upgrade-authority keypairs. All wallets and
-funds are devnet-only. Keep private keys outside the repository and use the
-existing project wallet registry when running in the managed workspace.
+All wallets and funds are devnet-only. Keep private keys outside the repository
+and use the existing project wallet registry in the managed workspace.
 
-The responder holds unrestricted upgrade authority in this proof of concept.
-Pinning a freeze binary in its configuration does **not** restrict the key's
-on-chain powers. A compromised responder could install code that steals the
-funds. An on-chain upgrade controller limited to an approved freeze artifact
-would address a different, larger design problem and is outside this demo.
+The attacker controls the application admin key after initialization. It does
+not control the bot, approval registry, deployment upgrade authority, or RPC.
+Separate keys do not provide operational separation if the same compromise can
+read all of them; keep the bot's key and approval-writing access outside the
+compromised admin's environment.
+
+The bot can stop withdrawals without being able to take custody of the vault.
+Compromise of its pause key can cause denial of service. With this one-way
+demo, an unnecessary pause locks the vault under the current program.
+
+An upgradeable deployment retains a higher authority: its upgrade key could
+install code that ignores the pause or changes its authority. The admin and
+bot must not hold that key. The demo's one-way guarantee applies to the
+deployed program's instructions, not to a malicious future upgrade. Revoking
+upgrade authority would make the code immutable, but that irreversible action
+is not required for this demo.
 
 ## Preparation
 
-1. Build and deploy the vault program with the separate upgrade authority.
-2. Initialize and fund a vault.
-3. Build the freeze binary and upload it to a loader buffer **before** the
-   attack. Assign the buffer to the program's upgrade authority.
-4. Record the program ID, vault PDA, buffer address, and freeze binary hash.
-   Check the program and buffer owners, authorities, and buffer bytes before
-   arming the responder.
-5. Start the receiver and expose its webhook route through public HTTPS.
-6. Configure a Helius `rawDevnet` webhook for the vault PDA with an
-   `authHeader`. Every admin change uses this stable account.
+1. Build and deploy the vault program with a separate deployment authority.
+2. Initialize a fresh vault with distinct admin, withdrawer, and bot accounts.
+3. Fund the vault with devnet SOL.
+4. Start the receiver and expose its webhook route through public HTTPS.
+5. Configure a Helius `rawDevnet` webhook for the vault PDA with an
+   `authHeader`.
+6. Confirm the bot can submit transactions and has devnet SOL for fees before
+   starting the attack.
 
-Do not compile or upload the binary after detecting the attack. The response
-path should need only the final loader upgrade transaction.
+There is one program binary. The response is an ordinary `pause` transaction;
+it needs no freeze binary, loader buffer, or upgrade signing key.
 
-## Approval registry
+## Approval registry and receiver
 
 Use a local SQLite database for approved transaction signatures and received
 jobs. A legitimate admin command constructs and signs the complete transaction,
 records its signature as approved, then broadcasts those exact signed bytes.
-If the transaction is rebuilt with a new blockhash, it needs a new approval.
+Rebuilding it with a different blockhash requires a new approval.
 
-Approving the exact signed transaction avoids an ambiguous allowlist such as
-"this admin may change the withdrawer." The signature commits to the complete
-transaction message, including accounts, instruction data, and blockhash.
+The signature commits to the complete transaction message, including accounts,
+instruction data, and blockhash. Never approve an action solely because the
+admin signed it. The attacker cannot write the registry, and the receiver has
+no public approval endpoint. An absent entry means unapproved under this
+policy; it does not establish malicious intent.
 
-The attacker can use the compromised admin key but cannot modify the registry
-or responder configuration. Provide no public approval endpoint. Never mark a
-transaction approved merely because the admin signed it.
+Authenticate deliveries with the configured Authorization header. Persist each
+job before acknowledging it, then process asynchronously. Helius documents a
+one-second acknowledgment requirement, duplicate deliveries, and finite
+delivery retries. Acknowledging before durable storage can lose an event if
+the process crashes.
 
-## Webhook and response flow
+Fetch the transaction from the configured devnet RPC and require a successful
+confirmed transaction before classifying it. Check the exact target program,
+vault, instruction, and account roles. Inspect all top-level instructions.
+Ignore failed transactions, donations, and instructions that do not change the
+withdrawer. Missing RPC data is unresolved work, not evidence that an event is
+harmless.
+
+For an unapproved admin change, submit `pause` with the bot's key. Track jobs
+by signature and resume unfinished work after restart. Confirm the transaction
+and read the intended vault's `paused` flag before recording containment.
+If the result of a submission is uncertain, inspect chain state; an already
+paused vault is a successful containment outcome.
+
+## Response flow
 
 ```mermaid
 sequenceDiagram
     participant A as Compromised admin
     participant S as Solana devnet
     participant H as Helius raw webhook
-    participant M as Monitor
+    participant B as Bot
     participant R as Approval registry
     A->>S: set_withdrawer(attacker)
     S-->>H: Confirmed transaction involving vault
-    H->>M: Authenticated HTTP POST
-    M->>M: Persist job; acknowledge delivery
-    M->>S: Fetch confirmed transaction
-    M->>R: Look up exact transaction signature
-    R-->>M: No approval
-    M->>S: Upgrade existing program using prepared buffer
-    M->>S: Verify freeze code and effective behavior
+    H->>B: Authenticated HTTP POST
+    B->>B: Persist job; acknowledge delivery
+    B->>S: Fetch confirmed transaction
+    B->>R: Look up exact transaction signature
+    R-->>B: No approval
+    B->>S: pause, signed by fixed pause authority
+    B->>S: Confirm paused state
     A->>S: withdraw
-    S-->>A: Frozen; vault funds unchanged
+    S-->>A: Paused; vault funds unchanged
 ```
 
-Authenticate the webhook using the configured Authorization header. Persist
-the job before acknowledging it, then process asynchronously. Helius documents
-a one-second acknowledgment requirement, duplicate deliveries, and finite
-delivery retries.
+## What can still go wrong
 
-Treat the webhook as a notification: fetch the transaction from the configured
-devnet RPC and require a successful confirmed transaction before classifying
-it. Check the exact target program, vault, instruction, and account roles.
-Inspect all top-level instructions, not just the first one. Ignore failed
-transactions, SOL donations, and calls that do not change this vault's
-withdrawer.
+- **The attacker acts first.** Webhooks arrive after confirmation. A withdrawal
+  in the same transaction as the admin change completes before the bot can
+  respond. Separate transactions can also outrun it. A pause does not undo
+  transfers.
+- **The response never lands.** A missed webhook, unavailable receiver or RPC,
+  stopped bot, missing fee funds, or transaction failure can prevent containment.
+  Delivery retries do not guarantee eventual receipt.
+- **The bot pauses unnecessarily.** A compromised pause key or an approval
+  registration error can lock legitimate funds. One-way pausing deliberately
+  makes this consequence visible in the demo.
+- **A program path bypasses the pause.** An unchecked withdrawal, account
+  substitution, reset, or privileged escape route invalidates containment.
+  The minimal program must enforce the flag and fixed authority on-chain.
+- **The upgrade authority is compromised.** Replacing the program can bypass
+  the restrictions entirely. This remains a separate trust assumption.
 
-If the administrative transaction is absent from the registry, submit the
-upgrade using the prepared buffer. "Absent" means unapproved under this policy;
-it does not prove that an attacker submitted it.
+A production protocol needs a recovery and key-rotation policy controlled
+independently of the application admin. Permanently fixing a raw bot key makes
+loss and compromise hard to recover from. "The admin cannot change it" need
+not mean "no independent governance can ever rotate it." Recovery, rotation,
+and an on-chain delay for sensitive changes are outside this minimal demo.
 
-Persist job state by signature, resume unfinished jobs after restart, and make
-the response idempotent. Do not mark a job complete merely because an upgrade
-was submitted. If a submission result is uncertain, reconcile chain state
-before retrying. An already installed freeze binary is a successful result;
-a consumed buffer is not a reason to attempt a fresh deployment.
-
-Confirm the upgrade and verify the deployed freeze bytes. Solana documents
-that the new code becomes effective in the slot after deployment, so upgrade
-submission alone is not evidence that the withdrawal path is frozen.
-
-## End-to-end demonstrations
+## Acceptance scenarios
 
 | Scenario | Required observation |
 | --- | --- |
-| Normal operation | An authorized withdrawal works before containment. |
-| Approved change | A pre-registered admin transaction changes the withdrawer without triggering an upgrade. |
-| Noise and failure | An unrelated SOL transfer and a failed admin instruction do not trigger an upgrade. |
-| Attack without containment | An unapproved change followed by withdrawal drains the vault's spendable balance when the responder is disabled. |
-| Attack with containment | A real Helius callback triggers the upgrade; a later submitted withdrawal fails specifically with `Frozen`; the vault balance is unchanged by that attempt. |
-| Duplicate delivery and restart | Replaying a callback or restarting with an unfinished job does not lose the job or redeploy unnecessarily. |
-| Atomic attack | A transaction containing both the admin change and withdrawal drains the vault before a webhook can respond. |
+| Normal operation | An authorized withdrawal works while active. |
+| Approved change | A pre-registered admin transaction changes the withdrawer without pausing. |
+| Noise and failure | A SOL donation and a failed admin instruction do not trigger a pause. |
+| Authority separation | Admin and unrelated accounts cannot pause; the bot cannot change the withdrawer or withdraw; unsigned authority accounts are rejected. |
+| Fixed authority and one-way state | Admin changes preserve the pause authority; reinitialization cannot replace it or clear the pause; admin changes and withdrawals fail after pausing. |
+| Attack without containment | An unapproved change followed by withdrawal drains the spendable balance with the responder disabled. |
+| Attack with containment | A real Helius callback triggers a confirmed pause; a later withdrawal fails specifically with `Paused`; its attempt does not change the vault balance. |
+| Duplicate delivery and restart | Repeated delivery and resuming an unfinished job retain the intended outcome; an already paused vault is handled successfully. |
+| Atomic attack | Admin change plus withdrawal in one transaction drains the vault before webhook containment. |
 
-Use fresh vaults and restore the original program through the separate upgrade
-authority between scenarios as necessary. Prepare a new freeze buffer for each
-actual upgrade; the loader consumes the old buffer.
+Use fresh vaults between scenarios. For the contained demonstration, explicitly
+wait for the confirmed pause before attempting withdrawal. This proves the
+functional integration, not a race benchmark. Submit the failed withdrawal
+on-chain rather than reporting only a preflight simulation error.
 
-For the contained demonstration, explicitly wait for containment before
-submitting the withdrawal. Label this as a functional end-to-end test, not a
-race benchmark. Submit the failed withdrawal on-chain rather than reporting
-only a preflight simulation error.
+Record public transaction signatures, slots, receiver timestamps, pause
+submission/confirmation timestamps, and vault balances. Distinguish local
+elapsed times from chain block times. Report observations without presenting
+them as a delivery SLA or guaranteed response window.
 
-Record public transaction signatures, slots, receiver timestamps, upgrade
-submission and confirmation timestamps, and vault balances. Distinguish local
-elapsed times from chain block times. These observations describe that run;
-they are not a delivery SLA or a general prevention guarantee.
+## Implementation shape and live prerequisites
 
-The atomic-attack scenario is an intentional limitation test. Adding an
-on-chain delay could create a response window, but would change the mechanism
-being demonstrated.
+- Rust vault program.
+- TypeScript scripts for initialization, approved changes, attacks, and outcomes.
+- TypeScript HTTP receiver and worker using a local SQLite database.
+- Public devnet configuration and an example environment file with placeholders.
+- A walkthrough linking the live demonstration's public transactions.
 
-## Implementation shape
+Use locked dependencies. Keep key material, API credentials, authorization
+headers, databases, and generated signing artifacts out of Git.
 
-- Rust vault program and separate freeze program.
-- TypeScript command-line scripts for setup, approved changes, attacks, and
-  checking outcomes.
-- A TypeScript HTTP receiver and worker sharing a local SQLite database.
-- Public devnet configuration and an example environment file containing
-  placeholders only.
-- A walkthrough with the commands and public transaction links from the live
-  demonstration.
-
-Use locked dependencies. Keep key material, Helius credentials, authorization
-headers, local databases, and generated signing artifacts out of Git.
+The live delivery test needs a Helius API key and a public HTTPS receiver.
+A local receiver exposed through an HTTPS tunnel is sufficient. Program
+development and local tests can proceed first; local webhook fixtures alone
+do not establish that the Helius integration works.
 
 ## Article wording
 
-> A protocol's application admin and its program upgrade authority can be
-> controlled by different keys. Our demo deliberately separates them. Even
-> after an attacker compromises the admin and changes the vault's withdrawal
-> account, the independent upgrade authority can replace the program with a
-> prebuilt version that rejects every instruction.
+> The vault has two independent authorities. The admin can change who is
+> allowed to withdraw, while a separate automated guardian can pause the vault.
+> The admin cannot replace that guardian or undo a pause. If our monitor sees
+> an admin change that was not approved in advance, it submits a pause
+> transaction. Once that transaction succeeds, subsequent withdrawals fail.
 >
-> This response only protects funds that have not already moved. Webhooks
-> arrive after confirmation, so the upgrade must take effect before the
-> attacker withdraws. If the configuration change and withdrawal happen in
-> the same transaction, this monitor cannot intervene between them.
+> The guardian has limited power: it can stop withdrawals, but its pause
+> authority cannot move funds or replace the program. That reduces the damage
+> a compromised bot can cause, although an unnecessary pause can still lock
+> users out of their funds.
+>
+> This protects funds only if the pause lands before withdrawal. A webhook
+> cannot intervene between instructions in a transaction that both changes the
+> configuration and drains the vault.
 
-The example models a compromised-admin sequence. It does not reproduce Drift
-or establish that this exact design would have prevented that incident.
-
-## Live-run prerequisites
-
-A Helius API key and a public HTTPS receiver are needed for the real delivery
-test. A local receiver exposed through an HTTPS tunnel is sufficient. Create
-the Helius account separately and provide credentials through local environment
-configuration; never paste them into the article or commit them.
-
-Program development and local transaction tests can proceed before this setup.
-Local webhook fixtures alone do not establish that the Helius integration works.
+This models a compromised-admin sequence. It does not reproduce Drift or
+establish that this exact design would have prevented that incident.
 
 ## References
 
 - [Helius webhook overview](https://www.helius.dev/docs/webhooks)
 - [Helius webhook FAQ: devnet, authentication, delivery, and retries](https://www.helius.dev/docs/faqs/webhooks)
-- [Helius create-webhook parameters](https://www.helius.dev/docs/api-reference/webhooks/create-webhook)
-- [Solana program deployment and upgrade behavior](https://solana.com/docs/core/programs/program-deployment)
+- [Solana program upgrade authority](https://solana.com/docs/core/programs/program-deployment)
 - [Solana transaction atomicity](https://solana.com/docs/core/transactions)
