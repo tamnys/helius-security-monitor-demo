@@ -8,7 +8,7 @@ import bs58 from 'bs58';
 import { Connection, Keypair, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
 import { Store } from '../src/store.mjs';
 import { adminChange, Monitor, receiver, signaturesFromRaw } from '../src/monitor.mjs';
-import { actionIx, connection, initializeIx, vaultAddress } from '../src/client.mjs';
+import { actionIx, connection, initializeIx, vaultAddress, waitForPaused } from '../src/client.mjs';
 
 const signature = () => bs58.encode(randomBytes(64));
 function fixture() {
@@ -168,4 +168,23 @@ test('network guard accepts the real devnet genesis and rejects other clusters',
     if (savedUrl === undefined) delete process.env.RPC_URL; else process.env.RPC_URL = savedUrl;
     if (savedLocal === undefined) delete process.env.ALLOW_LOCALNET; else process.env.ALLOW_LOCALNET = savedLocal;
   }
+});
+
+
+test('waiting observes startup state and retries on slot notifications', async () => {
+  const f = fixture();
+  let onSlot, removed = false;
+  f.rpc.onSlotChange = callback => { onSlot = callback; return 1; };
+  f.rpc.removeSlotChangeListener = async id => { assert.equal(id, 1); removed = true; };
+  f.data[1] = 1;
+  await waitForPaused(f.rpc, f.program, f.vault);
+  assert.equal(removed, true);
+  removed = false;
+  f.data[1] = 0;
+  const waiting = waitForPaused(f.rpc, f.program, f.vault);
+  await new Promise(resolve => setImmediate(resolve));
+  f.data[1] = 1;
+  onSlot();
+  await waiting;
+  assert.equal(removed, true);
 });

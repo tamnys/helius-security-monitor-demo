@@ -116,8 +116,19 @@ export function publicState(state) {
   return { paused: state.paused, admin: state.admin.toBase58(), withdrawer: state.withdrawer.toBase58(), guardian: state.guardian.toBase58(), lamports: state.lamports };
 }
 
-export function pollMs() {
-  const value = Number(required('POLL_MS'));
-  if (!Number.isSafeInteger(value) || value <= 0) throw new Error('POLL_MS must be a positive integer selected for your environment');
-  return value;
+// Retry only when chain state advances; no operator-selected polling interval.
+export async function waitForPaused(rpc, program, vault) {
+  let resolve, reject, checking = false, done = false;
+  const waiting = new Promise((yes, no) => { resolve = yes; reject = no; });
+  async function check() {
+    if (checking || done) return;
+    checking = true;
+    try {
+      if ((await readVault(rpc, program, vault)).paused) { done = true; resolve(); }
+    } catch (error) { done = true; reject(error); }
+    finally { checking = false; }
+  }
+  const subscription = rpc.onSlotChange(() => void check());
+  try { await check(); await waiting; }
+  finally { await rpc.removeSlotChangeListener(subscription); }
 }

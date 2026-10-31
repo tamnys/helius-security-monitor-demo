@@ -1,8 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { Store } from './store.mjs';
-import { actionIx, amountBytes, connection, customError, ERRORS, ids, initializeIx, keypair, LEN, pollMs, publicState, readVault, required, send, vaultAddress } from './client.mjs';
+import { actionIx, amountBytes, connection, customError, ERRORS, ids, initializeIx, keypair, LEN, publicState, readVault, required, send, vaultAddress, waitForPaused } from './client.mjs';
 
 const [command, argument] = process.argv.slice(2);
 function amount() {
@@ -37,8 +36,7 @@ async function main() {
     console.log(JSON.stringify(publicState(await readVault(rpc, program, vault)), null, 2)); return;
   }
   if (command === 'wait-paused') {
-    const interval = pollMs();
-    while (!(await readVault(rpc, program, vault)).paused) await sleep(interval);
+    await waitForPaused(rpc, program, vault);
     console.log(JSON.stringify({ event: 'paused-observed', vault: vault.toBase58(), at: new Date().toISOString() })); return;
   }
   if (command === 'approved-change' || command === 'attack-change') {

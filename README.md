@@ -88,11 +88,11 @@ Copy `.env.example` to an external configuration file and fill in:
 | `DB_PATH` | Path to the local SQLite registry and jobs database |
 | `WEBHOOK_AUTH` | Secret Authorization header value configured in Helius |
 | `PORT` | Receiver TCP port |
-| `POLL_MS` | Positive interval in milliseconds you select for retrying pending jobs |
 
-New callbacks wake the worker immediately; `POLL_MS` controls retries and work
-resumed after startup. The code deliberately requires the operator to choose
-this interval.
+New callbacks wake the worker immediately. Solana slot notifications wake
+pending work again as chain state advances, and startup resumes saved jobs.
+No polling interval needs configuring. The RPC must support standard Solana
+WebSocket subscriptions; Helius devnet endpoints provide them.
 
 Fund the deployment authority for program rent and fees, the admin for vault
 rent and its chosen deposit, and the other transaction senders for fees.
