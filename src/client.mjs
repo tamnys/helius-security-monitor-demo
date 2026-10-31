@@ -7,7 +7,7 @@ import { Connection, Keypair, PublicKey, SystemProgram, Transaction, Transaction
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const LEN = 131;
 export const ERRORS = { Paused: 0, Unauthorized: 1, InvalidVault: 2, InvalidAuthorities: 3, InsufficientFunds: 4, AdminCpiForbidden: 5 };
-export const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1';
+export const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
 
 export function required(name) {
   const value = process.env[name];

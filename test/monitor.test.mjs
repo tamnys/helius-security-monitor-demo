@@ -5,10 +5,10 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import bs58 from 'bs58';
-import { Keypair, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+import { Connection, Keypair, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
 import { Store } from '../src/store.mjs';
 import { adminChange, Monitor, receiver, signaturesFromRaw } from '../src/monitor.mjs';
-import { actionIx, initializeIx, vaultAddress } from '../src/client.mjs';
+import { actionIx, connection, initializeIx, vaultAddress } from '../src/client.mjs';
 
 const signature = () => bs58.encode(randomBytes(64));
 function fixture() {
@@ -144,4 +144,28 @@ test('raw parser rejects malformed payloads and deduplicates signatures', () => 
   assert.deepEqual(signaturesFromRaw([{ transaction: { signatures: [sig] } }, { transaction: { signatures: [sig] } }]), [sig]);
   assert.throws(() => signaturesFromRaw([{ transaction: { signatures: ['bad'] } }]));
   assert.throws(() => signaturesFromRaw({}));
+});
+
+
+test('network guard accepts the real devnet genesis and rejects other clusters', async t => {
+  const savedUrl = process.env.RPC_URL;
+  const savedLocal = process.env.ALLOW_LOCALNET;
+  let genesis = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+  t.mock.method(Connection.prototype, 'getGenesisHash', async () => genesis);
+  try {
+    process.env.RPC_URL = 'https://api.devnet.solana.com';
+    delete process.env.ALLOW_LOCALNET;
+    await connection();
+    genesis = 'different-cluster';
+    await assert.rejects(connection(), /Only Solana devnet/);
+    process.env.RPC_URL = 'http://127.0.0.1:8899';
+    await assert.rejects(connection(), /Only Solana devnet/);
+    process.env.ALLOW_LOCALNET = '1';
+    await connection();
+    process.env.RPC_URL = 'https://api.mainnet-beta.solana.com';
+    await assert.rejects(connection(), /Only Solana devnet/);
+  } finally {
+    if (savedUrl === undefined) delete process.env.RPC_URL; else process.env.RPC_URL = savedUrl;
+    if (savedLocal === undefined) delete process.env.ALLOW_LOCALNET; else process.env.ALLOW_LOCALNET = savedLocal;
+  }
 });
