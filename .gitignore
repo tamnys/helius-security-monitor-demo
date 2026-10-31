@@ -1,0 +1,10 @@
+node_modules/
+target/
+.env
+*.sqlite*
+run/
+.codex-tmp/
+.tools/
+*keypair*.json
+*.log
+.DS_Store
