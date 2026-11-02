@@ -80,8 +80,13 @@ async function main() {
   }
   throw new Error('Commands: init LAMPORTS | state | approved-change PUBKEY | attack-change | withdraw LAMPORTS | donate LAMPORTS | drain | attack-atomic | wait-paused | expect-paused | jobs');
 }
-main().catch(error => {
+function finish(code) {
+  // RPC WebSocket handles may remain after confirmation. Exit this one-shot CLI
+  // after its awaited work and queued output have finished.
+  process.stdout.write('', () => process.stderr.write('', () => process.exit(code)));
+}
+main().then(() => finish(0)).catch(error => {
   // RPC errors may embed an API key in their URL. Do not print their messages.
   console.error('Command failed (' + error.name + '). Check configuration, balances, and public transaction results.');
-  process.exitCode = 1;
+  finish(1);
 });

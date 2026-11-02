@@ -8,3 +8,4 @@ run/
 *keypair*.json
 *.log
 .DS_Store
+.codex-state/

@@ -24,6 +24,9 @@ sequenceDiagram
 
 See [the design](docs/design.md) for the threat model and limitations.
 
+See [the live devnet proof](docs/live-devnet-proof.md) for public
+transactions from the completed end-to-end run.
+
 ## Components
 
 - [Vault program](src/lib.rs): initialize, change withdrawer, withdraw, and pause.
