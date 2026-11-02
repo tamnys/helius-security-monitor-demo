@@ -32,7 +32,7 @@ transactions from the completed end-to-end run.
 - [Vault program](src/lib.rs): initialize, change withdrawer, withdraw, and pause.
 - [Bot](src/bot.mjs): authenticated HTTP receiver and durable SQLite jobs.
 - [Monitor](src/monitor.mjs): re-fetch confirmed transactions, match approvals,
-  and submit and confirm a pause.
+  and submit and confirm a pause through RPC or Helius Sender Max.
 - [CLI](src/cli.mjs): create vaults and exercise the approved and attacker paths.
 - [Runtime tests](tests/vault.rs) and [receiver tests](test/monitor.test.mjs).
 
@@ -91,6 +91,11 @@ Copy `.env.example` to an external configuration file and fill in:
 | `DB_PATH` | Path to the local SQLite registry and jobs database |
 | `WEBHOOK_AUTH` | Secret Authorization header value configured in Helius |
 | `PORT` | Receiver TCP port |
+| `SENDER_ENABLED` | `1` to submit pauses through Helius Sender Max on mainnet; use `0` for the devnet demo |
+| `ALLOW_MAINNET` | Must be `1` together with `SENDER_ENABLED=1`; prevents accidental mainnet use |
+| `SENDER_URL` | Sender endpoint; use the global HTTPS `/fast` endpoint or a keyless regional HTTP endpoint |
+| `SENDER_TIP_LAMPORTS` | Sender Max tip; at least `1000000` lamports |
+| `SENDER_PRIORITY_MICROLAMPORTS` | Compute unit price; defaults to `200000` micro-lamports per compute unit |
 
 New callbacks wake the worker immediately. Solana slot notifications wake
 pending work again as chain state advances, and startup resumes saved jobs.
@@ -101,8 +106,51 @@ Fund the deployment authority for program rent and fees, the admin for vault
 rent and its chosen deposit, and the other transaction senders for fees.
 Use devnet SOL only. Determine deployment rent from the compiled program size.
 
+Helius Sender is a mainnet service. It cannot submit this devnet demo's pause
+transaction. With Sender disabled, the bot uses the configured devnet RPC as
+shown in this walkthrough.
+
 The scripts verify the devnet genesis hash before sending. A loopback validator
-is allowed only with `ALLOW_LOCALNET=1`; mainnet is rejected.
+is allowed only with `ALLOW_LOCALNET=1`. The demo CLI rejects mainnet. The bot
+permits it only when both `SENDER_ENABLED=1` and `ALLOW_MAINNET=1` are set.
+
+## Submit production pauses through Helius Sender Max
+
+The bot can use [Helius Sender Max](https://www.helius.dev/docs/sending-transactions/sender-max)
+when the monitored vault is on mainnet. This is separate from the devnet
+walkthrough below. Enable it only with a mainnet RPC and all three explicit
+settings:
+
+```sh
+ALLOW_MAINNET=1
+SENDER_ENABLED=1
+SENDER_URL=https://sender.helius-rpc.com/fast
+```
+
+The bot checks the RPC genesis hash and refuses to use Sender on devnet. It
+warms the Sender connection during idle periods and, for an unapproved change,
+builds one atomic transaction containing:
+
+1. A compute unit limit and priority fee.
+2. The guardian-only pause instruction.
+3. A transfer of at least 0.001 SOL to a current Sender tip account.
+
+The default priority fee is 20,000 lamports. Fund the guardian with enough SOL
+for the tip, priority fee, and transaction fee. A higher `SENDER_TIP_LAMPORTS`
+can increase placement priority; `SENDER_PRIORITY_MICROLAMPORTS` can be tuned to
+current network conditions.
+
+The global HTTPS endpoint is the safe default. For lower server-to-server
+latency, Helius also publishes regional HTTP endpoints. Leave the Sender URL
+keyless if using HTTP so an API key is not sent over plaintext. Keyless Sender
+requests are limited to one per second, which is sufficient for this
+low-frequency guardian.
+
+Sender submissions skip preflight and disable its internal retries. A Sender
+HTTP failure falls back to submitting the exact same signed transaction through
+the configured RPC. An uncertain result remains a pending durable job; the bot
+checks authoritative vault state before retrying, so an already landed pause is
+not submitted again.
 
 The bot's runtime needs only its own signing key. Keep admin signing and
 approval-writing access out of the bot's exposed HTTP interface. The demo's
@@ -247,6 +295,11 @@ Webhooks arrive after confirmation. The bot cannot undo a completed withdrawal,
 and delayed or missing deliveries can prevent containment. The code models a
 compromised-admin sequence and does not establish that it would have prevented
 a particular historical exploit.
+
+Helius Sender improves the chance and speed of inclusion, but does not
+eliminate the race. Its availability, tip competition, priority-fee market,
+and the guardian's SOL balance all affect whether a pause lands before an
+attacker's next transaction.
 
 References: [Helius webhook FAQ](https://www.helius.dev/docs/faqs/webhooks),
 [Solana transaction atomicity](https://solana.com/docs/core/transactions),

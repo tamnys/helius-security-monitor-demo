@@ -5,10 +5,13 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import bs58 from 'bs58';
-import { Connection, Keypair, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
 import { Store } from '../src/store.mjs';
 import { adminChange, Monitor, receiver, signaturesFromRaw } from '../src/monitor.mjs';
-import { actionIx, connection, initializeIx, vaultAddress, waitForPaused } from '../src/client.mjs';
+import {
+  actionIx, connection, initializeIx, MAINNET_GENESIS, senderConfig, SENDER_TIP_ACCOUNTS,
+  vaultAddress, waitForPaused, warmSender,
+} from '../src/client.mjs';
 
 const signature = () => bs58.encode(randomBytes(64));
 function fixture() {
@@ -35,11 +38,12 @@ function fixture() {
     async sendRawTransaction(bytes) {
       const sent = Transaction.from(bytes);
       assert.ok(sent.verifySignatures());
-      assert.equal(sent.instructions.length, 1);
-      assert.ok(sent.instructions[0].programId.equals(program));
-      assert.ok(sent.instructions[0].keys[0].pubkey.equals(vault));
-      assert.ok(sent.instructions[0].keys[1].pubkey.equals(guardian.publicKey));
-      assert.deepEqual([...sent.instructions[0].data], [3]);
+      const pause = sent.instructions.find(ix => ix.programId.equals(program));
+      assert.ok(pause);
+      assert.equal(sent.instructions.filter(ix => ix.programId.equals(program)).length, 1);
+      assert.ok(pause.keys[0].pubkey.equals(vault));
+      assert.ok(pause.keys[1].pubkey.equals(guardian.publicKey));
+      assert.deepEqual([...pause.data], [3]);
       this.submissions++; data[1] = 1;
       if (this.uncertain) throw new Error('Simulated RPC disconnect after landing');
       return bs58.encode(sent.signature);
@@ -129,6 +133,63 @@ test('restart reconciles an uncertain pause without submitting another transacti
   store.close();
 });
 
+test('Sender Max submits the pause with a priority fee and atomic tip, then confirms through RPC', async () => {
+  const f = fixture(), store = new Store(':memory:'), sig = signature();
+  f.rpc.transactions.set(sig, f.tx); store.enqueue([sig]);
+  let post;
+  const tip = SENDER_TIP_ACCOUNTS[0];
+  const sender = senderConfig({
+    network: 'mainnet',
+    url: 'https://sender.example/fast',
+    tipAccount: tip,
+    fetchImpl: async (url, options = {}) => {
+      if (options.method !== 'POST') return { ok: true };
+      post = { url: String(url), body: JSON.parse(options.body) };
+      const sent = Transaction.from(Buffer.from(post.body.params[0], 'base64'));
+      assert.ok(sent.verifySignatures());
+      assert.equal(post.body.method, 'sendTransaction');
+      assert.deepEqual(post.body.params[1], { encoding: 'base64', skipPreflight: true, maxRetries: 0 });
+      assert.ok(sent.instructions[0].programId.equals(ComputeBudgetProgram.programId));
+      assert.ok(sent.instructions[1].programId.equals(ComputeBudgetProgram.programId));
+      const pause = sent.instructions.find(ix => ix.programId.equals(f.program));
+      const tipIx = sent.instructions.find(ix => ix.programId.equals(SystemProgram.programId) && ix.keys[1].pubkey.equals(tip));
+      assert.deepEqual([...pause.data], [3]);
+      assert.equal(tipIx.data.readBigUInt64LE(4), 1_000_000n);
+      f.data[1] = 1;
+      return { ok: true, json: async () => ({ result: post.body.id }) };
+    },
+  });
+  assert.equal(await warmSender(sender), true);
+  await new Monitor({ ...f, store, sender, log: () => {} }).tick();
+  assert.equal(post.url, 'https://sender.example/fast');
+  assert.equal(f.rpc.submissions, 0);
+  assert.equal(store.jobs()[0].outcome, 'paused');
+  store.close();
+});
+
+test('Sender failure falls back to the exact signed payload through RPC', async () => {
+  const f = fixture(), store = new Store(':memory:'), sig = signature();
+  f.rpc.transactions.set(sig, f.tx); store.enqueue([sig]);
+  const sender = senderConfig({
+    network: 'mainnet',
+    url: 'https://sender.example/fast',
+    fetchImpl: async () => { throw new Error('sender unavailable'); },
+  });
+  await new Monitor({ ...f, store, sender, log: () => {} }).tick();
+  assert.equal(f.rpc.submissions, 1);
+  assert.equal(f.data[1], 1);
+  assert.equal(store.jobs()[0].outcome, 'paused');
+  store.close();
+});
+
+test('Sender configuration enforces mainnet, Sender Max tip, and minimum priority fee', () => {
+  assert.throws(() => senderConfig({ network: 'devnet', url: 'https://sender.example/fast' }), /mainnet/);
+  assert.throws(() => senderConfig({ network: 'mainnet', url: 'https://sender.example/fast', tipLamports: 999_999 }), /tip/);
+  assert.throws(() => senderConfig({ network: 'mainnet', url: 'https://sender.example/fast', priorityFeeMicroLamports: 1 }), /priority fee/);
+  assert.throws(() => senderConfig({ network: 'mainnet', url: 'https://sender.example/fast?swqos_only=true' }), /Sender Max/);
+  assert.throws(() => senderConfig({ network: 'mainnet', url: 'http://sender.example/fast?api-key=secret' }), /HTTP/);
+});
+
 test('failed admin transactions and donations complete without a pause', async () => {
   const f = fixture(), store = new Store(':memory:'), sig = signature();
   f.tx.meta.err = { InstructionError: [0, 'InvalidInstructionData'] };
@@ -164,6 +225,9 @@ test('network guard accepts the real devnet genesis and rejects other clusters',
     await connection();
     process.env.RPC_URL = 'https://api.mainnet-beta.solana.com';
     await assert.rejects(connection(), /Only Solana devnet/);
+    genesis = MAINNET_GENESIS;
+    const mainnet = await connection({ allowMainnet: true });
+    assert.equal(mainnet.network, 'mainnet');
   } finally {
     if (savedUrl === undefined) delete process.env.RPC_URL; else process.env.RPC_URL = savedUrl;
     if (savedLocal === undefined) delete process.env.ALLOW_LOCALNET; else process.env.ALLOW_LOCALNET = savedLocal;

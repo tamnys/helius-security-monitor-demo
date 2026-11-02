@@ -1,7 +1,7 @@
 import bs58 from 'bs58';
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import { actionIx, readVault, send } from './client.mjs';
+import { actionIx, readVault, send, sendViaSender } from './client.mjs';
 
 export function signaturesFromRaw(payload) {
   if (!Array.isArray(payload) || payload.length === 0) throw new Error('Expected raw webhook transaction array');
@@ -24,8 +24,8 @@ export function adminChange(tx, program, vault, admin) {
 }
 
 export class Monitor {
-  constructor({ rpc, program, vault, guardian, store, log = console.log }) {
-    Object.assign(this, { rpc, program, vault, guardian, store, log });
+  constructor({ rpc, program, vault, guardian, store, sender = null, log = console.log }) {
+    Object.assign(this, { rpc, program, vault, guardian, store, sender, log });
     this.running = false;
   }
   async tick() {
@@ -45,8 +45,10 @@ export class Monitor {
             this.store.complete(job.signature, 'approved'); continue;
           }
           if (!state.paused) {
-            const pause = await send(this.rpc, this.guardian,
-              [actionIx(this.program, this.vault, this.guardian.publicKey, 3)]);
+            const instructions = [actionIx(this.program, this.vault, this.guardian.publicKey, 3)];
+            const pause = this.sender
+              ? await sendViaSender(this.rpc, this.guardian, instructions, { sender: this.sender })
+              : await send(this.rpc, this.guardian, instructions);
             this.log(JSON.stringify({ event: 'pause-confirmed', trigger: job.signature, ...pause, at: new Date().toISOString() }));
             if (pause.err) throw new Error('Pause transaction failed');
           }

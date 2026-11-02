@@ -7,7 +7,8 @@ A compromised application admin changes a SOL vault's authorized withdrawer.
 A Helius raw webhook notifies an automated bot, which checks an approval
 registry and submits a built-in `pause` instruction for an unapproved change.
 The bot has a separate pause authority. The admin cannot replace that authority
-or unpause the vault.
+or unpause the vault. The live proof runs on devnet through RPC; an optional
+mainnet response path submits the same pause through Helius Sender Max.
 
 This document describes the design and acceptance criteria.
 
@@ -61,12 +62,14 @@ callers would require extending the program and monitor deliberately.
 | Application admin | Change the withdrawer while the vault is active. The attack script uses this compromised key. |
 | Legitimate withdrawer | Withdraw before compromise. |
 | Attacker | Receive withdrawal permission and attempt to drain the vault. |
-| Bot / pause authority | Pause the vault. This authority grants no withdrawal, unpause, configuration, or program-upgrade permission. |
+| Bot / pause authority | Pause the vault. This authority grants no withdrawal, unpause, configuration, or program-upgrade permission. On mainnet it also pays the Sender tip, priority fee, and transaction fee. |
 | Approval operator | Register legitimate transactions locally before broadcast. |
 | Deployment upgrade authority | Replace the program's code; kept separate from the admin and bot and unused during containment. |
 
-All wallets and funds are devnet-only. Keep private keys outside the repository
-and use the existing project wallet registry in the managed workspace.
+The live proof uses devnet wallets and funds. The optional Sender path is
+mainnet-only and requires guardian SOL for its tip, priority fee, and
+transaction fee. Keep private keys outside the repository and use the existing
+project wallet registry in the managed workspace.
 
 The attacker controls the application admin key after initialization. It does
 not control the bot, approval registry, deployment upgrade authority, or RPC.
@@ -131,6 +134,14 @@ and read the intended vault's `paused` flag before recording containment.
 If the result of a submission is uncertain, inspect chain state; an already
 paused vault is a successful containment outcome.
 
+The devnet proof submits through the configured RPC. On mainnet, the bot can
+use Helius Sender Max to route one atomic transaction containing a compute unit
+limit, a priority fee, the pause instruction, and a Sender tip to a current tip
+account. The bot checks the genesis hash and refuses Sender on devnet. If the
+Sender HTTP call fails, it submits the identical signed bytes through the RPC.
+Because the bytes are identical, routing the retry through a second transport
+does not create a second transaction signature.
+
 ## Response flow
 
 ```mermaid
@@ -140,6 +151,7 @@ sequenceDiagram
     participant H as Helius raw webhook
     participant B as Bot
     participant R as Approval registry
+    participant X as Sender Max (mainnet path)
     A->>S: set_withdrawer(attacker)
     S-->>H: Confirmed transaction involving vault
     H->>B: Authenticated HTTP POST
@@ -147,7 +159,8 @@ sequenceDiagram
     B->>S: Fetch confirmed transaction
     B->>R: Look up exact transaction signature
     R-->>B: No approval
-    B->>S: pause, signed by fixed pause authority
+    B->>X: pause + priority fee + tip
+    X->>S: Route pause transaction
     B->>S: Confirm paused state
     A->>S: withdraw
     S-->>A: Paused; vault funds unchanged
@@ -162,6 +175,10 @@ sequenceDiagram
 - **The response never lands.** A missed webhook, unavailable receiver or RPC,
   stopped bot, missing fee funds, or transaction failure can prevent containment.
   Delivery retries do not guarantee eventual receipt.
+- **Sender does not guarantee inclusion.** Mainnet Sender Max requires enough
+  guardian balance for its tip and priority fee, and current competition can
+  still delay landing. The RPC fallback preserves a second transport, but both
+  paths can be unavailable or arrive too late.
 - **The bot pauses unnecessarily.** A compromised pause key or an approval
   registration error can lock legitimate funds. One-way pausing deliberately
   makes this consequence visible in the demo.
@@ -189,6 +206,7 @@ and an on-chain delay for sensitive changes are outside this minimal demo.
 | Attack without containment | An unapproved change followed by withdrawal drains the spendable balance with the responder disabled. |
 | Attack with containment | A real Helius callback triggers a confirmed pause; a later withdrawal fails specifically with `Paused`; its attempt does not change the vault balance. |
 | Duplicate delivery and restart | Repeated delivery and resuming an unfinished job retain the intended outcome; an already paused vault is handled successfully. |
+| Sender mainnet response | Sender receives one atomic priority-fee, pause, and tip transaction; confirmation uses RPC; failure submits the identical signed bytes through RPC. |
 | Atomic attack | Admin change plus withdrawal in one transaction drains the vault before webhook containment. |
 
 Use fresh vaults between scenarios. For the contained demonstration, explicitly
@@ -223,7 +241,9 @@ do not establish that the Helius integration works.
 > allowed to withdraw, while a separate automated guardian can pause the vault.
 > The admin cannot replace that guardian or undo a pause. If our monitor sees
 > an admin change that was not approved in advance, it submits a pause
-> transaction. Once that transaction succeeds, subsequent withdrawals fail.
+> transaction. On mainnet, Helius Sender Max routes that transaction through
+> multiple fast submission paths with a priority fee and a tip. Once it
+> succeeds, subsequent withdrawals fail.
 >
 > The guardian has limited power: it can stop withdrawals, but its pause
 > authority cannot move funds or replace the program. That reduces the damage
@@ -241,5 +261,6 @@ establish that this exact design would have prevented that incident.
 
 - [Helius webhook overview](https://www.helius.dev/docs/webhooks)
 - [Helius webhook FAQ: devnet, authentication, delivery, and retries](https://www.helius.dev/docs/faqs/webhooks)
+- [Helius Sender Max](https://www.helius.dev/docs/sending-transactions/sender-max)
 - [Solana program upgrade authority](https://solana.com/docs/core/programs/program-deployment)
 - [Solana transaction atomicity](https://solana.com/docs/core/transactions)
