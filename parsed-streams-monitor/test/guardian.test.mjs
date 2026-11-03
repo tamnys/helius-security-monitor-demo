@@ -353,6 +353,27 @@ test('uncertain freeze results reconcile from authoritative account state after 
   store.close();
 });
 
+test('pending jobs are scoped to the configured collateral account', () => {
+  const store = new Store(':memory:');
+  const firstCollateral = Keypair.generate().publicKey.toBase58();
+  const secondCollateral = Keypair.generate().publicKey.toBase58();
+  const base = {
+    slot: 100,
+    newAdmin: Keypair.generate().publicKey.toBase58(),
+  };
+  store.enqueue([
+    { ...base, signature: signature(), collateral: firstCollateral },
+    { ...base, signature: signature(), collateral: secondCollateral },
+  ]);
+
+  assert.equal(store.pending().length, 2);
+  assert.deepEqual(
+    store.pending(firstCollateral).map((job) => job.collateral),
+    [firstCollateral],
+  );
+  store.close();
+});
+
 test('events arriving during an active freeze are processed in the serial worker queue', async () => {
   const f = fixture(),
     store = new Store(':memory:');

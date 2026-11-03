@@ -25,7 +25,7 @@ export class GuardianMonitor {
   }
 
   async process() {
-    for (const job of this.store.pending()) {
+    for (const job of this.store.pending(this.collateral.toBase58())) {
       try {
         if (this.store.approved(job.signature)) {
           this.store.complete(job.signature, 'approved');

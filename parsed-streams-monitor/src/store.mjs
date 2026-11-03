@@ -60,12 +60,21 @@ export class Store {
     }
   }
 
-  pending() {
+  pending(collateral = null) {
+    if (collateral === null) {
+      return this.db
+        .prepare(
+          "SELECT * FROM jobs WHERE status='pending' ORDER BY slot,received_at",
+        )
+        .all();
+    }
     return this.db
       .prepare(
-        "SELECT * FROM jobs WHERE status='pending' ORDER BY slot,received_at",
+        `SELECT * FROM jobs
+        WHERE status='pending' AND collateral=?
+        ORDER BY slot,received_at`,
       )
-      .all();
+      .all(collateral);
   }
 
   complete(signature, outcome) {

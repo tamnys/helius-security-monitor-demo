@@ -52,4 +52,6 @@ scenarios.
 
 The historical proof pages describe the artifacts and transactions from their
 recorded runs. New runs should be recorded separately rather than overwriting
-those records.
+those records. See the
+[November 2, 2026 verification run](verification-2026-11-02.md) for the results
+from the current examples.
