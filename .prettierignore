@@ -1,0 +1,12 @@
+.codex/
+.codex-state/
+.codex-tmp/
+.pnpm-store/
+.tools/
+**/node_modules/
+**/target/
+**/.tools/
+**/run/
+**/Cargo.lock
+**/pnpm-lock.yaml
+**/docs/live-devnet-proof.md

@@ -1,0 +1,13 @@
+{
+  "name": "helius-security-monitor-demos",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.5",
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "docs:check": "node scripts/check-docs.mjs",
+    "test": "pnpm --dir webhook-monitor test && pnpm --dir parsed-streams-monitor test"
+  },
+  "devDependencies": { "prettier": "3.6.2" }
+}
