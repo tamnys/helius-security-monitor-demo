@@ -9,5 +9,7 @@
     "docs:check": "node scripts/check-docs.mjs",
     "test": "pnpm --dir webhook-monitor test && pnpm --dir parsed-streams-monitor test"
   },
-  "devDependencies": { "prettier": "3.6.2" }
+  "devDependencies": {
+    "prettier": "3.6.2"
+  }
 }

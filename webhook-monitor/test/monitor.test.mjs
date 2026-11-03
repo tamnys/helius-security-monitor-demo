@@ -1,3 +1,8 @@
+import {
+  senderConfig,
+  SENDER_TIP_ACCOUNTS,
+  warmSender,
+} from '../src/sender.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -5,58 +10,126 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import bs58 from 'bs58';
-import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
-import { Store } from '../src/store.mjs';
-import { adminChange, Monitor, receiver, signaturesFromRaw } from '../src/monitor.mjs';
 import {
-  actionIx, connection, initializeIx, MAINNET_GENESIS, senderConfig, SENDER_TIP_ACCOUNTS,
-  vaultAddress, waitForPaused, warmSender,
+  ComputeBudgetProgram,
+  Connection,
+  Keypair,
+  PublicKey,
+  Transaction,
+  SystemProgram,
+} from '@solana/web3.js';
+import { Store } from '../src/store.mjs';
+import {
+  adminChange,
+  Monitor,
+  receiver,
+  signaturesFromRaw,
+} from '../src/monitor.mjs';
+import {
+  actionIx,
+  connection,
+  initializeIx,
+  MAINNET_GENESIS,
+  vaultAddress,
+  waitForPaused,
 } from '../src/client.mjs';
 
 const signature = () => bs58.encode(randomBytes(64));
 function fixture() {
-  const program = Keypair.generate().publicKey, admin = Keypair.generate(), guardian = Keypair.generate(), withdrawer = Keypair.generate();
-  const seed = randomBytes(32), vault = vaultAddress(program, admin.publicKey, seed);
+  const program = Keypair.generate().publicKey,
+    admin = Keypair.generate(),
+    guardian = Keypair.generate(),
+    withdrawer = Keypair.generate();
+  const seed = randomBytes(32),
+    vault = vaultAddress(program, admin.publicKey, seed);
   const data = Buffer.alloc(131);
   data[0] = 1;
-  data[2] = PublicKey.findProgramAddressSync([Buffer.from('vault'), admin.publicKey.toBuffer(), seed], program)[1];
-  seed.copy(data, 3); admin.publicKey.toBuffer().copy(data, 35); withdrawer.publicKey.toBuffer().copy(data, 67); guardian.publicKey.toBuffer().copy(data, 99);
-  const change = actionIx(program, vault, admin.publicKey, 1, Keypair.generate().publicKey.toBuffer());
+  data[2] = PublicKey.findProgramAddressSync(
+    [Buffer.from('vault'), admin.publicKey.toBuffer(), seed],
+    program,
+  )[1];
+  seed.copy(data, 3);
+  admin.publicKey.toBuffer().copy(data, 35);
+  withdrawer.publicKey.toBuffer().copy(data, 67);
+  guardian.publicKey.toBuffer().copy(data, 99);
+  const change = actionIx(
+    program,
+    vault,
+    admin.publicKey,
+    1,
+    Keypair.generate().publicKey.toBuffer(),
+  );
   const tx = {
     meta: { err: null },
-    transaction: { message: {
-      accountKeys: [{ pubkey: admin.publicKey, signer: true }],
-      instructions: [{ programId: SystemProgram.programId, accounts: [], data: '' },
-        { programId: change.programId, accounts: change.keys.map(k => k.pubkey), data: bs58.encode(change.data) }],
-    } },
+    transaction: {
+      message: {
+        accountKeys: [{ pubkey: admin.publicKey, signer: true }],
+        instructions: [
+          { programId: SystemProgram.programId, accounts: [], data: '' },
+          {
+            programId: change.programId,
+            accounts: change.keys.map((k) => k.pubkey),
+            data: bs58.encode(change.data),
+          },
+        ],
+      },
+    },
   };
   const rpc = {
-    transactions: new Map(), submissions: 0, uncertain: false,
-    async getParsedTransaction(sig) { return this.transactions.get(sig) ?? null; },
-    async getAccountInfo() { return { owner: program, data, lamports: 10000000 }; },
-    async getLatestBlockhash() { return { blockhash: Keypair.generate().publicKey.toBase58(), lastValidBlockHeight: 1 }; },
+    transactions: new Map(),
+    submissions: 0,
+    uncertain: false,
+    async getParsedTransaction(sig) {
+      return this.transactions.get(sig) ?? null;
+    },
+    async getAccountInfo() {
+      return { owner: program, data, lamports: 10000000 };
+    },
+    async getLatestBlockhash() {
+      return {
+        blockhash: Keypair.generate().publicKey.toBase58(),
+        lastValidBlockHeight: 1,
+      };
+    },
     async sendRawTransaction(bytes) {
       const sent = Transaction.from(bytes);
       assert.ok(sent.verifySignatures());
-      const pause = sent.instructions.find(ix => ix.programId.equals(program));
+      const pause = sent.instructions.find((ix) =>
+        ix.programId.equals(program),
+      );
       assert.ok(pause);
-      assert.equal(sent.instructions.filter(ix => ix.programId.equals(program)).length, 1);
+      assert.equal(
+        sent.instructions.filter((ix) => ix.programId.equals(program)).length,
+        1,
+      );
       assert.ok(pause.keys[0].pubkey.equals(vault));
       assert.ok(pause.keys[1].pubkey.equals(guardian.publicKey));
       assert.deepEqual([...pause.data], [3]);
-      this.submissions++; data[1] = 1;
-      if (this.uncertain) throw new Error('Simulated RPC disconnect after landing');
+      this.submissions++;
+      data[1] = 1;
+      if (this.uncertain)
+        throw new Error('Simulated RPC disconnect after landing');
       return bs58.encode(sent.signature);
     },
-    async confirmTransaction() { return { context: { slot: 1 }, value: { err: null } }; },
+    async confirmTransaction() {
+      return { context: { slot: 1 }, value: { err: null } };
+    },
   };
   return { program, admin, guardian, withdrawer, vault, seed, data, tx, rpc };
 }
-function monitor(f, store) { return new Monitor({ ...f, store, log: () => {} }); }
+function monitor(f, store) {
+  return new Monitor({ ...f, store, log: () => {} });
+}
 
 test('client initialize account layout matches program contract', () => {
   const f = fixture();
-  const ix = initializeIx(f.program, f.admin.publicKey, f.withdrawer.publicKey, f.guardian.publicKey, f.seed);
+  const ix = initializeIx(
+    f.program,
+    f.admin.publicKey,
+    f.withdrawer.publicKey,
+    f.guardian.publicKey,
+    f.seed,
+  );
   assert.equal(ix.data.length, 33);
   assert.ok(ix.keys[1].pubkey.equals(f.vault));
   assert.equal(ix.keys[0].isSigner, true);
@@ -66,8 +139,19 @@ test('client initialize account layout matches program contract', () => {
 test('classification checks the program, vault, admin signer, success, and all instructions', () => {
   const f = fixture();
   assert.equal(adminChange(f.tx, f.program, f.vault, f.admin.publicKey), true);
-  assert.equal(adminChange(f.tx, Keypair.generate().publicKey, f.vault, f.admin.publicKey), false);
-  assert.equal(adminChange(f.tx, f.program, Keypair.generate().publicKey, f.admin.publicKey), false);
+  assert.equal(
+    adminChange(f.tx, Keypair.generate().publicKey, f.vault, f.admin.publicKey),
+    false,
+  );
+  assert.equal(
+    adminChange(
+      f.tx,
+      f.program,
+      Keypair.generate().publicKey,
+      f.admin.publicKey,
+    ),
+    false,
+  );
   f.tx.transaction.message.accountKeys[0].signer = false;
   assert.equal(adminChange(f.tx, f.program, f.vault, f.admin.publicKey), false);
   f.tx.transaction.message.accountKeys[0].signer = true;
@@ -79,9 +163,11 @@ test('classification checks the program, vault, admin signer, success, and all i
 });
 
 test('approvals prevent pausing; absent RPC data remains pending', async () => {
-  const f = fixture(), store = new Store(':memory:');
+  const f = fixture(),
+    store = new Store(':memory:');
   const sig = signature();
-  store.approve(sig); store.enqueue([sig]);
+  store.approve(sig);
+  store.enqueue([sig]);
   await monitor(f, store).tick();
   assert.equal(store.pending().length, 1);
   f.rpc.transactions.set(sig, f.tx);
@@ -92,34 +178,63 @@ test('approvals prevent pausing; absent RPC data remains pending', async () => {
 });
 
 test('real HTTP ingress persists authenticated raw notifications and contains the change', async () => {
-  const f = fixture(), store = new Store(':memory:'), sig = signature();
+  const f = fixture(),
+    store = new Store(':memory:'),
+    sig = signature();
   f.rpc.transactions.set(sig, f.tx);
   const m = monitor(f, store);
   const server = receiver({ secret: 'test-secret', store, log: () => {} });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const url = 'http://127.0.0.1:' + server.address().port + '/webhook';
   const body = JSON.stringify([{ transaction: { signatures: [sig] } }]);
   try {
     assert.equal((await fetch(url, { method: 'POST', body })).status, 403);
     assert.equal(store.jobs().length, 0);
-    assert.equal((await fetch(url, { method: 'POST', headers: { authorization: 'test-secret' }, body })).status, 200);
+    assert.equal(
+      (
+        await fetch(url, {
+          method: 'POST',
+          headers: { authorization: 'test-secret' },
+          body,
+        })
+      ).status,
+      200,
+    );
     assert.equal(store.pending().length, 1);
     await m.tick();
     assert.equal(f.data[1], 1);
     assert.equal(store.jobs()[0].outcome, 'paused');
-    await fetch(url, { method: 'POST', headers: { authorization: 'test-secret' }, body });
+    await fetch(url, {
+      method: 'POST',
+      headers: { authorization: 'test-secret' },
+      body,
+    });
     await m.tick();
     assert.equal(store.jobs().length, 1);
     assert.equal(f.rpc.submissions, 1);
-    assert.equal((await fetch(url, { method: 'POST', headers: { authorization: 'test-secret' }, body: '{}' })).status, 400);
-  } finally { await new Promise(resolve => server.close(resolve)); store.close(); }
+    assert.equal(
+      (
+        await fetch(url, {
+          method: 'POST',
+          headers: { authorization: 'test-secret' },
+          body: '{}',
+        })
+      ).status,
+      400,
+    );
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+  }
 });
 
 test('restart reconciles an uncertain pause without submitting another transaction', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'helius-test-'));
   const path = join(dir, 'monitor.sqlite');
-  const f = fixture(), sig = signature();
-  f.rpc.transactions.set(sig, f.tx); f.rpc.uncertain = true;
+  const f = fixture(),
+    sig = signature();
+  f.rpc.transactions.set(sig, f.tx);
+  f.rpc.uncertain = true;
   let store = new Store(path);
   store.enqueue([sig]);
   await monitor(f, store).tick();
@@ -134,8 +249,11 @@ test('restart reconciles an uncertain pause without submitting another transacti
 });
 
 test('Sender Max submits the pause with a priority fee and atomic tip, then confirms through RPC', async () => {
-  const f = fixture(), store = new Store(':memory:'), sig = signature();
-  f.rpc.transactions.set(sig, f.tx); store.enqueue([sig]);
+  const f = fixture(),
+    store = new Store(':memory:'),
+    sig = signature();
+  f.rpc.transactions.set(sig, f.tx);
+  store.enqueue([sig]);
   let post;
   const tip = SENDER_TIP_ACCOUNTS[0];
   const sender = senderConfig({
@@ -148,11 +266,25 @@ test('Sender Max submits the pause with a priority fee and atomic tip, then conf
       const sent = Transaction.from(Buffer.from(post.body.params[0], 'base64'));
       assert.ok(sent.verifySignatures());
       assert.equal(post.body.method, 'sendTransaction');
-      assert.deepEqual(post.body.params[1], { encoding: 'base64', skipPreflight: true, maxRetries: 0 });
-      assert.ok(sent.instructions[0].programId.equals(ComputeBudgetProgram.programId));
-      assert.ok(sent.instructions[1].programId.equals(ComputeBudgetProgram.programId));
-      const pause = sent.instructions.find(ix => ix.programId.equals(f.program));
-      const tipIx = sent.instructions.find(ix => ix.programId.equals(SystemProgram.programId) && ix.keys[1].pubkey.equals(tip));
+      assert.deepEqual(post.body.params[1], {
+        encoding: 'base64',
+        skipPreflight: true,
+        maxRetries: 0,
+      });
+      assert.ok(
+        sent.instructions[0].programId.equals(ComputeBudgetProgram.programId),
+      );
+      assert.ok(
+        sent.instructions[1].programId.equals(ComputeBudgetProgram.programId),
+      );
+      const pause = sent.instructions.find((ix) =>
+        ix.programId.equals(f.program),
+      );
+      const tipIx = sent.instructions.find(
+        (ix) =>
+          ix.programId.equals(SystemProgram.programId) &&
+          ix.keys[1].pubkey.equals(tip),
+      );
       assert.deepEqual([...pause.data], [3]);
       assert.equal(tipIx.data.readBigUInt64LE(4), 1_000_000n);
       f.data[1] = 1;
@@ -168,12 +300,17 @@ test('Sender Max submits the pause with a priority fee and atomic tip, then conf
 });
 
 test('Sender failure falls back to the exact signed payload through RPC', async () => {
-  const f = fixture(), store = new Store(':memory:'), sig = signature();
-  f.rpc.transactions.set(sig, f.tx); store.enqueue([sig]);
+  const f = fixture(),
+    store = new Store(':memory:'),
+    sig = signature();
+  f.rpc.transactions.set(sig, f.tx);
+  store.enqueue([sig]);
   const sender = senderConfig({
     network: 'mainnet',
     url: 'https://sender.example/fast',
-    fetchImpl: async () => { throw new Error('sender unavailable'); },
+    fetchImpl: async () => {
+      throw new Error('sender unavailable');
+    },
   });
   await new Monitor({ ...f, store, sender, log: () => {} }).tick();
   assert.equal(f.rpc.submissions, 1);
@@ -183,17 +320,54 @@ test('Sender failure falls back to the exact signed payload through RPC', async 
 });
 
 test('Sender configuration enforces mainnet, Sender Max tip, and minimum priority fee', () => {
-  assert.throws(() => senderConfig({ network: 'devnet', url: 'https://sender.example/fast' }), /mainnet/);
-  assert.throws(() => senderConfig({ network: 'mainnet', url: 'https://sender.example/fast', tipLamports: 999_999 }), /tip/);
-  assert.throws(() => senderConfig({ network: 'mainnet', url: 'https://sender.example/fast', priorityFeeMicroLamports: 1 }), /priority fee/);
-  assert.throws(() => senderConfig({ network: 'mainnet', url: 'https://sender.example/fast?swqos_only=true' }), /Sender Max/);
-  assert.throws(() => senderConfig({ network: 'mainnet', url: 'http://sender.example/fast?api-key=secret' }), /HTTP/);
+  assert.throws(
+    () =>
+      senderConfig({ network: 'devnet', url: 'https://sender.example/fast' }),
+    /mainnet/,
+  );
+  assert.throws(
+    () =>
+      senderConfig({
+        network: 'mainnet',
+        url: 'https://sender.example/fast',
+        tipLamports: 999_999,
+      }),
+    /tip/,
+  );
+  assert.throws(
+    () =>
+      senderConfig({
+        network: 'mainnet',
+        url: 'https://sender.example/fast',
+        priorityFeeMicroLamports: 1,
+      }),
+    /priority fee/,
+  );
+  assert.throws(
+    () =>
+      senderConfig({
+        network: 'mainnet',
+        url: 'https://sender.example/fast?swqos_only=true',
+      }),
+    /Sender Max/,
+  );
+  assert.throws(
+    () =>
+      senderConfig({
+        network: 'mainnet',
+        url: 'http://sender.example/fast?api-key=secret',
+      }),
+    /HTTP/,
+  );
 });
 
 test('failed admin transactions and donations complete without a pause', async () => {
-  const f = fixture(), store = new Store(':memory:'), sig = signature();
+  const f = fixture(),
+    store = new Store(':memory:'),
+    sig = signature();
   f.tx.meta.err = { InstructionError: [0, 'InvalidInstructionData'] };
-  f.rpc.transactions.set(sig, f.tx); store.enqueue([sig]);
+  f.rpc.transactions.set(sig, f.tx);
+  store.enqueue([sig]);
   await monitor(f, store).tick();
   assert.equal(store.jobs()[0].outcome, 'irrelevant-or-failed');
   assert.equal(f.rpc.submissions, 0);
@@ -202,13 +376,20 @@ test('failed admin transactions and donations complete without a pause', async (
 
 test('raw parser rejects malformed payloads and deduplicates signatures', () => {
   const sig = signature();
-  assert.deepEqual(signaturesFromRaw([{ transaction: { signatures: [sig] } }, { transaction: { signatures: [sig] } }]), [sig]);
-  assert.throws(() => signaturesFromRaw([{ transaction: { signatures: ['bad'] } }]));
+  assert.deepEqual(
+    signaturesFromRaw([
+      { transaction: { signatures: [sig] } },
+      { transaction: { signatures: [sig] } },
+    ]),
+    [sig],
+  );
+  assert.throws(() =>
+    signaturesFromRaw([{ transaction: { signatures: ['bad'] } }]),
+  );
   assert.throws(() => signaturesFromRaw({}));
 });
 
-
-test('network guard accepts the real devnet genesis and rejects other clusters', async t => {
+test('network guard accepts the real devnet genesis and rejects other clusters', async (t) => {
   const savedUrl = process.env.RPC_URL;
   const savedLocal = process.env.ALLOW_LOCALNET;
   let genesis = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
@@ -229,24 +410,32 @@ test('network guard accepts the real devnet genesis and rejects other clusters',
     const mainnet = await connection({ allowMainnet: true });
     assert.equal(mainnet.network, 'mainnet');
   } finally {
-    if (savedUrl === undefined) delete process.env.RPC_URL; else process.env.RPC_URL = savedUrl;
-    if (savedLocal === undefined) delete process.env.ALLOW_LOCALNET; else process.env.ALLOW_LOCALNET = savedLocal;
+    if (savedUrl === undefined) delete process.env.RPC_URL;
+    else process.env.RPC_URL = savedUrl;
+    if (savedLocal === undefined) delete process.env.ALLOW_LOCALNET;
+    else process.env.ALLOW_LOCALNET = savedLocal;
   }
 });
 
-
 test('waiting observes startup state and retries on slot notifications', async () => {
   const f = fixture();
-  let onSlot, removed = false;
-  f.rpc.onSlotChange = callback => { onSlot = callback; return 1; };
-  f.rpc.removeSlotChangeListener = async id => { assert.equal(id, 1); removed = true; };
+  let onSlot,
+    removed = false;
+  f.rpc.onSlotChange = (callback) => {
+    onSlot = callback;
+    return 1;
+  };
+  f.rpc.removeSlotChangeListener = async (id) => {
+    assert.equal(id, 1);
+    removed = true;
+  };
   f.data[1] = 1;
   await waitForPaused(f.rpc, f.program, f.vault);
   assert.equal(removed, true);
   removed = false;
   f.data[1] = 0;
   const waiting = waitForPaused(f.rpc, f.program, f.vault);
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   f.data[1] = 1;
   onSlot();
   await waiting;

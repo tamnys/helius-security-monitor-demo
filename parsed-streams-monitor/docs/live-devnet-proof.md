@@ -9,10 +9,10 @@ no real value.
 | Item | Value |
 | --- | --- |
 | Network | Solana devnet |
-| Program | `CKEZ6GAHPwsqjqh78GASC6mHkHFhefr7jnWnyPHeujPx` |
-| Program data | `93bbaFvTA3oLiHoNEdHaax3VXD2u38SC7dxoeLhu8iDY` |
-| Upgrade authority | `FjHRfaFFiVMtcNEQ24JXUyydKueGKxtBvB73vnY1oxof` |
-| Deployment signature | `5u43ccqrDGf7Wx1rSE7VJhQkA8ApHUsFkKjkhUbadefpzKbjG3CdvnbxjQQmcpmQx4exfVYKVyyb36ERMoodzFRx` |
+| Program | [`CKEZ6GAHPwsqjqh78GASC6mHkHFhefr7jnWnyPHeujPx`](https://explorer.solana.com/address/CKEZ6GAHPwsqjqh78GASC6mHkHFhefr7jnWnyPHeujPx?cluster=devnet) |
+| Program data | [`93bbaFvTA3oLiHoNEdHaax3VXD2u38SC7dxoeLhu8iDY`](https://explorer.solana.com/address/93bbaFvTA3oLiHoNEdHaax3VXD2u38SC7dxoeLhu8iDY?cluster=devnet) |
+| Upgrade authority | [`FjHRfaFFiVMtcNEQ24JXUyydKueGKxtBvB73vnY1oxof`](https://explorer.solana.com/address/FjHRfaFFiVMtcNEQ24JXUyydKueGKxtBvB73vnY1oxof?cluster=devnet) |
+| Deployment signature | [`5u43ccqrDGf7Wx1rSE7VJhQkA8ApHUsFkKjkhUbadefpzKbjG3CdvnbxjQQmcpmQx4exfVYKVyyb36ERMoodzFRx`](https://explorer.solana.com/tx/5u43ccqrDGf7Wx1rSE7VJhQkA8ApHUsFkKjkhUbadefpzKbjG3CdvnbxjQQmcpmQx4exfVYKVyyb36ERMoodzFRx?cluster=devnet) |
 | Deployment slot / UTC block time | `518026834` / `2026-11-02T23:54:41Z` |
 | Artifact size | `76,824` bytes |
 | Artifact SHA-256 | `cda1b828b5fcc75aab6b054834273ce321b2744a1333f08cc164a0870521b546` |
@@ -23,11 +23,11 @@ The deployment authority is separate from the customer and fixed guardian.
 
 | Step | Public signature | Slot / UTC block time |
 | --- | --- | --- |
-| Initialize clean victim `AjZBAr1NWNXoEWcLMXr8tSjRG6TLpAidK61WBqAF8Aeb` | `3j1g5GLpyATTLs63jBDBGTaucsPqMs44KYoU9Keq2be3RfmjVZD1AVP9apfxqK3MGLYohE8gLaWvCh8C7uux5cGn` | `518029687` / `2026-11-03T00:06:03Z` |
-| Approved admin insertion | `2Vnj7pX4VQMcWkXyHf6eoGrKMZm5DERnPuyNXFqdAVjDAA1gVL1EDiEbUErgdkKH24VZAqQs3RzUPikrtwtE2Dsp` | `518029728` / `2026-11-03T00:06:13Z` |
-| Unauthorized attacker insertion while fixture offline | `4H4quLuNXTJeH1Naz3U9tRVXfQowjuESxiYYxpJ4b34GGap4qScXpDW61D5zAorNjvZLtN41Bfe7ZzArAUyYpkR2` | `518029921` / `2026-11-03T00:06:59Z` |
-| Guardian freeze after reconnect recovery | `4hLF7rVaWrQJjyoxHM8Njdniu66SBcsfsJBnnMAwkJ4DPnSwB7KupY8YuLUUtqg1r2BMTMXiVhwJwccb5pzMgWnG` | `518030003` / `2026-11-03T00:07:18Z` |
-| Attacker post-freeze withdrawal | `2TPfbP5Ri4w1NpF4NWBxaNeS6RmvUpPb5iXyU1SH4UAgzuV9ReEdGZKKZFoc9Z76EcJP8tMAZ2yqk8Vi3yJc6qtX` | `518030067` / `2026-11-03T00:07:34Z` |
+| Initialize clean victim [`AjZBAr1NWNXoEWcLMXr8tSjRG6TLpAidK61WBqAF8Aeb`](https://explorer.solana.com/address/AjZBAr1NWNXoEWcLMXr8tSjRG6TLpAidK61WBqAF8Aeb?cluster=devnet) | [`3j1g5GLpyATTLs63jBDBGTaucsPqMs44KYoU9Keq2be3RfmjVZD1AVP9apfxqK3MGLYohE8gLaWvCh8C7uux5cGn`](https://explorer.solana.com/tx/3j1g5GLpyATTLs63jBDBGTaucsPqMs44KYoU9Keq2be3RfmjVZD1AVP9apfxqK3MGLYohE8gLaWvCh8C7uux5cGn?cluster=devnet) | `518029687` / `2026-11-03T00:06:03Z` |
+| Approved admin insertion | [`2Vnj7pX4VQMcWkXyHf6eoGrKMZm5DERnPuyNXFqdAVjDAA1gVL1EDiEbUErgdkKH24VZAqQs3RzUPikrtwtE2Dsp`](https://explorer.solana.com/tx/2Vnj7pX4VQMcWkXyHf6eoGrKMZm5DERnPuyNXFqdAVjDAA1gVL1EDiEbUErgdkKH24VZAqQs3RzUPikrtwtE2Dsp?cluster=devnet) | `518029728` / `2026-11-03T00:06:13Z` |
+| Unauthorized attacker insertion while fixture offline | [`4H4quLuNXTJeH1Naz3U9tRVXfQowjuESxiYYxpJ4b34GGap4qScXpDW61D5zAorNjvZLtN41Bfe7ZzArAUyYpkR2`](https://explorer.solana.com/tx/4H4quLuNXTJeH1Naz3U9tRVXfQowjuESxiYYxpJ4b34GGap4qScXpDW61D5zAorNjvZLtN41Bfe7ZzArAUyYpkR2?cluster=devnet) | `518029921` / `2026-11-03T00:06:59Z` |
+| Guardian freeze after reconnect recovery | [`4hLF7rVaWrQJjyoxHM8Njdniu66SBcsfsJBnnMAwkJ4DPnSwB7KupY8YuLUUtqg1r2BMTMXiVhwJwccb5pzMgWnG`](https://explorer.solana.com/tx/4hLF7rVaWrQJjyoxHM8Njdniu66SBcsfsJBnnMAwkJ4DPnSwB7KupY8YuLUUtqg1r2BMTMXiVhwJwccb5pzMgWnG?cluster=devnet) | `518030003` / `2026-11-03T00:07:18Z` |
+| Attacker post-freeze withdrawal | [`2TPfbP5Ri4w1NpF4NWBxaNeS6RmvUpPb5iXyU1SH4UAgzuV9ReEdGZKKZFoc9Z76EcJP8tMAZ2yqk8Vi3yJc6qtX`](https://explorer.solana.com/tx/2TPfbP5Ri4w1NpF4NWBxaNeS6RmvUpPb5iXyU1SH4UAgzuV9ReEdGZKKZFoc9Z76EcJP8tMAZ2yqk8Vi3yJc6qtX?cluster=devnet) | `518030067` / `2026-11-03T00:07:34Z` |
 
 The approved insertion completed with outcome `approved` and did not freeze
 the account. Its exact transaction signature was registered before broadcast.
@@ -47,21 +47,21 @@ which is the program's `Frozen` error. The victim collateral balance was
 
 ## Account isolation
 
-A separate control account, `Eh5czpyW1fuvSxzVdUcDqKH7hKQ2nfsxTe6k5GXUJEcW`,
+A separate control account, [`Eh5czpyW1fuvSxzVdUcDqKH7hKQ2nfsxTe6k5GXUJEcW`](https://explorer.solana.com/address/Eh5czpyW1fuvSxzVdUcDqKH7hKQ2nfsxTe6k5GXUJEcW?cluster=devnet),
 belongs to a different customer and has its own fixed guardian. Withdrawing
 `1,000,000` lamports succeeded after the victim account was frozen:
 
-`3DmSYFzuzna1femumYDg1opTYAoWUevTYpxWYJ8weFYvC8Cd1AskW5Z6hcryrrBjNaoviBMDpkFcEiSUGpCRMezr`
+[`3DmSYFzuzna1femumYDg1opTYAoWUevTYpxWYJ8weFYvC8Cd1AskW5Z6hcryrrBjNaoviBMDpkFcEiSUGpCRMezr`](https://explorer.solana.com/tx/3DmSYFzuzna1femumYDg1opTYAoWUevTYpxWYJ8weFYvC8Cd1AskW5Z6hcryrrBjNaoviBMDpkFcEiSUGpCRMezr?cluster=devnet)
 
 The control account remained unfrozen at `10,645,920` lamports after that
 withdrawal. Its pre-withdrawal balance was `11,645,920` lamports.
 
 ## Atomicity limit
 
-Fresh account `DaD69JZGkdVEepyXHY1wAV54D2BRZVpzAJbuFaGUtLk1` received the
+Fresh account [`DaD69JZGkdVEepyXHY1wAV54D2BRZVpzAJbuFaGUtLk1`](https://explorer.solana.com/address/DaD69JZGkdVEepyXHY1wAV54D2BRZVpzAJbuFaGUtLk1?cluster=devnet) received the
 unauthorized admin insertion and withdrawal in one transaction:
 
-`4XyEU9Yg1dw4R6SEStY5X8KpbuS8s39ySmwgrS9KBbp1XsrRmyuxmvpK29wBG8Dj62eXwBbcW1Gne7HpSJUks5QT`
+[`4XyEU9Yg1dw4R6SEStY5X8KpbuS8s39ySmwgrS9KBbp1XsrRmyuxmvpK29wBG8Dj62eXwBbcW1Gne7HpSJUks5QT`](https://explorer.solana.com/tx/4XyEU9Yg1dw4R6SEStY5X8KpbuS8s39ySmwgrS9KBbp1XsrRmyuxmvpK29wBG8Dj62eXwBbcW1Gne7HpSJUks5QT?cluster=devnet)
 
 It drained `10,000,000` spendable lamports, leaving `1,645,920` lamports of
 rent. The transaction confirmed at slot `518029446` before Parsed Streams could

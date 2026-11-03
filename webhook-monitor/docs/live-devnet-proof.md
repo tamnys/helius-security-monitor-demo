@@ -66,6 +66,6 @@ reverse a transfer performed inside it.
 
 ## Reproduce it
 
-Follow [the setup and test walkthrough](../README.md#build-and-test), then use a
+Follow [the setup and test walkthrough](../README.md#prerequisites), then use a
 fresh vault for each attack. The webhook's public tunnel URL is intentionally
 not recorded because temporary tunnel URLs expire.

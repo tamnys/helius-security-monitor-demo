@@ -10,7 +10,12 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "demo": "node src/cli.mjs",
-    "bot": "node src/bot.mjs"
+    "bot": "node src/bot.mjs",
+    "build": "bash scripts/build-sbf.sh",
+    "deploy:devnet": "bash scripts/deploy-devnet.sh",
+    "test:rust": "cargo test --locked",
+    "test:sbf": "BPF_OUT_DIR=target/deploy cargo test --locked --test vault",
+    "tunnel": "bash scripts/https-tunnel.sh"
   },
   "dependencies": {
     "@solana/web3.js": "1.98.4",

@@ -57,8 +57,8 @@ Parsed Streams. The local decoder also accepts that shape when available.
 
 The registry stores exact transaction signatures. A legitimate operator creates,
 signs, and registers the complete transaction before broadcast. The signature
-commits to every account, instruction, argument, and blockhash. The monitor never
-treats an admin signature alone as authorization.
+commits to every account, instruction, argument, and blockhash. The monitor
+never treats an admin signature alone as authorization.
 
 Each event is persisted before work begins. Duplicate stream deliveries and
 recovered transactions share the same signature key, so they cannot create a
@@ -94,26 +94,26 @@ The reconciliation steps are:
 5. Persist the reconciled slot.
 6. Process pending jobs and buffered notifications.
 
-Devnet uses `getSignaturesForAddress` with pagination and `getParsedTransaction`.
-The mainnet adapter uses the paginated Parsed Events transaction-history endpoint
-with explicit slot bounds. If either recovery source is incomplete, the client
-closes the subscription and retries with exponential backoff rather than
-pretending the gap is closed.
+Devnet uses `getSignaturesForAddress` with pagination and
+`getParsedTransaction`. The mainnet adapter uses the paginated Parsed Events
+transaction-history endpoint with explicit slot bounds. If either recovery
+source is incomplete, the client closes the subscription and retries with
+exponential backoff rather than pretending the gap is closed.
 
 Connections use a 1-second to 30-second exponential backoff and a 60-second idle
 watchdog based on Helius's documented close behavior.
 
 ## Failure boundaries
 
-- Detection happens after confirmation. A separate second transaction provides
-  a response window, but any second transaction can also outrun the response.
+- Detection happens after confirmation. A separate second transaction provides a
+  response window, but any second transaction can also outrun the response.
 - An insertion and withdrawal in the same transaction succeed atomically before
   Parsed Streams sees the event.
 - Stream or recovery downtime creates a gap. Recovery helps after reconnect but
   cannot reverse withdrawals completed during the gap.
 - The guardian can cause denial of service. A mistaken approval record or
   decoder error causes a false freeze.
-- The deployment authority can replace the program and bypass the fix.
+- The deployment authority can replace the program and bypass the freeze.
 - A production system needs guardian rotation, recovery governance, monitoring
   of the monitor, and external alert delivery.
 

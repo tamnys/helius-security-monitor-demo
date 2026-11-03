@@ -15,8 +15,19 @@ export class ParsedStreamsClient {
     clearTimeoutImpl = clearTimeout,
   }) {
     Object.assign(this, {
-      url, filter, options, reconcile, mapNotification, onEvent, log, WebSocketImpl,
-      reconnectBaseMs, reconnectMaxMs, idleMs, setTimeoutImpl, clearTimeoutImpl,
+      url,
+      filter,
+      options,
+      reconcile,
+      mapNotification,
+      onEvent,
+      log,
+      WebSocketImpl,
+      reconnectBaseMs,
+      reconnectMaxMs,
+      idleMs,
+      setTimeoutImpl,
+      clearTimeoutImpl,
     });
     this.reconnectMs = reconnectBaseMs;
     this.requestId = 1;
@@ -35,7 +46,9 @@ export class ParsedStreamsClient {
     if (this.stopped) return;
     const generation = ++this.generation;
     const previous = this.socket;
-    try { previous?.close(); } catch {}
+    try {
+      previous?.close();
+    } catch {}
     this.ready = false;
     this.buffer = [];
     const socket = new this.WebSocketImpl(this.url);
@@ -45,13 +58,18 @@ export class ParsedStreamsClient {
       this.resetIdle();
       const id = this.requestId++;
       this.subscribeId = id;
-      socket.send(JSON.stringify({
-        jsonrpc: '2.0', id, method: 'parsedTransactionSubscribe',
-        params: [this.filter, this.options],
-      }));
+      socket.send(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          method: 'parsedTransactionSubscribe',
+          params: [this.filter, this.options],
+        }),
+      );
     });
-    socket.addEventListener('message', message => {
-      if (generation === this.generation) void this.message(message.data, generation);
+    socket.addEventListener('message', (message) => {
+      if (generation === this.generation)
+        void this.message(message.data, generation);
     });
     socket.addEventListener('error', () => {
       if (generation !== this.generation) return;
@@ -70,14 +88,23 @@ export class ParsedStreamsClient {
   async message(data, generation) {
     this.resetIdle();
     let message;
-    try { message = JSON.parse(String(data)); } catch { return; }
+    try {
+      message = JSON.parse(String(data));
+    } catch {
+      return;
+    }
     if (message.id === this.subscribeId && !message.method) {
       if (message.error) {
         if (message.error.code === -32001 || message.error.code === -32002) {
           this.socket?.close();
           return;
         }
-        this.log(JSON.stringify({ event: 'stream-subscription-error', code: message.error.code ?? null }));
+        this.log(
+          JSON.stringify({
+            event: 'stream-subscription-error',
+            code: message.error.code ?? null,
+          }),
+        );
         this.stop();
         return;
       }
@@ -86,12 +113,20 @@ export class ParsedStreamsClient {
         return;
       }
       this.subscription = message.result;
-      this.log(JSON.stringify({ event: 'stream-subscribed', subscription: message.result }));
+      this.log(
+        JSON.stringify({
+          event: 'stream-subscribed',
+          subscription: message.result,
+        }),
+      );
       await this.recover(generation);
       return;
     }
     if (message.method !== 'parsedTransactionNotification') return;
-    if (!this.ready) { this.buffer.push(message); return; }
+    if (!this.ready) {
+      this.buffer.push(message);
+      return;
+    }
     await this.deliver(message);
   }
 
@@ -103,9 +138,19 @@ export class ParsedStreamsClient {
       this.reconnectMs = this.reconnectBaseMs;
       const buffered = this.buffer.splice(0);
       for (const message of buffered) await this.deliver(message);
-      this.log(JSON.stringify({ event: 'stream-reconciled', at: new Date().toISOString() }));
+      this.log(
+        JSON.stringify({
+          event: 'stream-reconciled',
+          at: new Date().toISOString(),
+        }),
+      );
     } catch {
-      this.log(JSON.stringify({ event: 'stream-recovery-pending', at: new Date().toISOString() }));
+      this.log(
+        JSON.stringify({
+          event: 'stream-recovery-pending',
+          at: new Date().toISOString(),
+        }),
+      );
       this.socket?.close();
     }
   }
@@ -115,7 +160,12 @@ export class ParsedStreamsClient {
       const event = this.mapNotification(message);
       if (event) await this.onEvent(event);
     } catch {
-      this.log(JSON.stringify({ event: 'stream-notification-pending', at: new Date().toISOString() }));
+      this.log(
+        JSON.stringify({
+          event: 'stream-notification-pending',
+          at: new Date().toISOString(),
+        }),
+      );
     }
   }
 
@@ -123,7 +173,13 @@ export class ParsedStreamsClient {
     if (this.reconnectTimer) return;
     const delay = this.reconnectMs;
     this.reconnectMs = Math.min(this.reconnectMs * 2, this.reconnectMaxMs);
-    this.log(JSON.stringify({ event: 'stream-reconnecting', delay_ms: delay, at: new Date().toISOString() }));
+    this.log(
+      JSON.stringify({
+        event: 'stream-reconnecting',
+        delay_ms: delay,
+        at: new Date().toISOString(),
+      }),
+    );
     this.reconnectTimer = this.setTimeoutImpl(() => {
       this.reconnectTimer = null;
       this.open();
@@ -133,7 +189,12 @@ export class ParsedStreamsClient {
   resetIdle() {
     if (this.idleTimer) this.clearTimeoutImpl(this.idleTimer);
     this.idleTimer = this.setTimeoutImpl(() => {
-      this.log(JSON.stringify({ event: 'stream-idle-timeout', at: new Date().toISOString() }));
+      this.log(
+        JSON.stringify({
+          event: 'stream-idle-timeout',
+          at: new Date().toISOString(),
+        }),
+      );
       this.socket?.close();
     }, this.idleMs);
   }

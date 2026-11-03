@@ -12,7 +12,11 @@
     "demo": "node src/cli.mjs",
     "bot": "node src/bot.mjs",
     "fixture": "node src/fixture-server.mjs",
-    "smoke": "node src/smoke-stream.mjs"
+    "smoke": "node src/smoke-stream.mjs",
+    "build": "bash scripts/build-sbf.sh",
+    "deploy:devnet": "bash scripts/deploy-devnet.sh",
+    "test:rust": "cargo test --locked",
+    "test:sbf": "BPF_OUT_DIR=target/deploy cargo test --locked --test collateral"
   },
   "dependencies": {
     "@solana/web3.js": "1.98.4",

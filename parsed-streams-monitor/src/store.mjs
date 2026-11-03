@@ -24,11 +24,17 @@ export class Store {
   }
 
   approve(signature) {
-    this.db.prepare('INSERT OR IGNORE INTO approvals VALUES (?,?)').run(signature, new Date().toISOString());
+    this.db
+      .prepare('INSERT OR IGNORE INTO approvals VALUES (?,?)')
+      .run(signature, new Date().toISOString());
   }
 
   approved(signature) {
-    return Boolean(this.db.prepare('SELECT 1 FROM approvals WHERE signature=?').get(signature));
+    return Boolean(
+      this.db
+        .prepare('SELECT 1 FROM approvals WHERE signature=?')
+        .get(signature),
+    );
   }
 
   enqueue(events) {
@@ -39,29 +45,50 @@ export class Store {
       const stmt = this.db.prepare(`INSERT OR IGNORE INTO jobs
         (signature,slot,collateral,new_admin,received_at) VALUES (?,?,?,?,?)`);
       for (const event of events) {
-        stmt.run(event.signature, event.slot, event.collateral, event.newAdmin, now);
+        stmt.run(
+          event.signature,
+          event.slot,
+          event.collateral,
+          event.newAdmin,
+          now,
+        );
       }
       this.db.exec('COMMIT');
-    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   pending() {
-    return this.db.prepare("SELECT * FROM jobs WHERE status='pending' ORDER BY slot,received_at").all();
+    return this.db
+      .prepare(
+        "SELECT * FROM jobs WHERE status='pending' ORDER BY slot,received_at",
+      )
+      .all();
   }
 
   complete(signature, outcome) {
-    this.db.prepare("UPDATE jobs SET status='done',outcome=?,completed_at=? WHERE signature=?")
+    this.db
+      .prepare(
+        "UPDATE jobs SET status='done',outcome=?,completed_at=? WHERE signature=?",
+      )
       .run(outcome, new Date().toISOString(), signature);
   }
 
   jobs() {
-    return this.db.prepare('SELECT * FROM jobs ORDER BY slot,received_at').all();
+    return this.db
+      .prepare('SELECT * FROM jobs ORDER BY slot,received_at')
+      .all();
   }
 
   alert(signature, collateral, newAdmin, status = 'pending') {
     const now = new Date().toISOString();
-    this.db.prepare(`INSERT INTO alerts(signature,collateral,new_admin,status,created_at,updated_at)
-      VALUES (?,?,?,?,?,?) ON CONFLICT(signature) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at`)
+    this.db
+      .prepare(
+        `INSERT INTO alerts(signature,collateral,new_admin,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,?) ON CONFLICT(signature) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at`,
+      )
       .run(signature, collateral, newAdmin, status, now, now);
   }
 
@@ -70,12 +97,19 @@ export class Store {
   }
 
   getMeta(key) {
-    return this.db.prepare('SELECT value FROM meta WHERE key=?').get(key)?.value ?? null;
+    return (
+      this.db.prepare('SELECT value FROM meta WHERE key=?').get(key)?.value ??
+      null
+    );
   }
 
   setMeta(key, value) {
-    this.db.prepare(`INSERT INTO meta(key,value) VALUES (?,?)
-      ON CONFLICT(key) DO UPDATE SET value=excluded.value`).run(key, String(value));
+    this.db
+      .prepare(
+        `INSERT INTO meta(key,value) VALUES (?,?)
+      ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+      )
+      .run(key, String(value));
   }
 
   lastReconciledSlot() {
@@ -87,5 +121,7 @@ export class Store {
     this.setMeta('last_reconciled_slot', slot);
   }
 
-  close() { this.db.close(); }
+  close() {
+    this.db.close();
+  }
 }

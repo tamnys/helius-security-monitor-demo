@@ -1,219 +1,175 @@
 # Parsed Streams security monitor
 
-A Rain-inspired customer-collateral demo that detects an unauthorized
-`AddCollateralAdmin` instruction with Helius Parsed Streams and freezes only the
-affected customer account.
+Detect an unauthorized collateral-admin insertion and freeze only the affected
+customer's account. The monitor demonstrates Parsed Streams filtering,
+reconnects, historical recovery, and exact-signature approvals.
 
-See [the live devnet proof](docs/live-devnet-proof.md) for public deployment,
-recovery, freeze, control-account, and atomicity transactions.
+> [!WARNING] The on-chain program intentionally omits authorization in
+> `add_collateral_admin`. Use devnet only. This bug is the attack demonstrated
+> by the example.
 
-> [!WARNING]
-> The on-chain program intentionally contains an authorization bug in
-> `add_collateral_admin`. Use devnet only and keep balances small.
-
-## What it demonstrates
-
-The customer collateral PDA stores SOL, a fixed guardian, and up to four admin
-keys. Its `add_collateral_admin` instruction deliberately omits an existing
-admin's authorization check. Anyone can append an admin, reproducing the
-vulnerability class described in the article.
-
-The monitor subscribes to Parsed Streams with this filter:
-
-```json
-{
-  "programs": ["<COLLATERAL_PROGRAM_ID>"],
-  "accounts": { "include": ["<COLLATERAL>"] },
-  "includeFailed": false,
-  "includeCpi": true
-}
-```
-
-The custom program is outside Helius's IDL catalog, so it arrives as raw
-instruction data. The monitor decodes tag `1`, verifies the collateral account
-and proposed admin, and checks the exact transaction signature against the
-local approval registry. An unapproved insertion emits a structured security
-alert and immediately submits a guardian-only freeze transaction.
+The walkthrough uses real devnet transactions and a **local WebSocket fixture**
+that emits Parsed Streams-shaped notifications. It does not connect devnet to
+the mainnet Helius stream. The optional read-only smoke command checks the real
+service separately. See the [design](docs/design.md) and
+[historical devnet proof](docs/live-devnet-proof.md).
 
 ```mermaid
 sequenceDiagram
-    participant H as Helius Parsed Streams
-    participant M as Monitoring service
-    participant R as Authorization registry
-    participant G as Guardian key
-    participant S as Solana
-    H->>M: Filtered AddCollateralAdmin notification
-    M->>M: Persist, deduplicate, decode locally
+    participant F as Devnet stream fixture
+    participant M as Monitor
+    participant R as Approval registry
+    participant S as Solana devnet
+    F->>M: AddCollateralAdmin notification
+    M->>M: Persist and decode
     M->>R: Match exact transaction signature
-    R-->>M: No authorization
-    M->>M: Emit security alert
-    M->>G: Sign freeze_customer
-    M->>S: Submit and confirm freeze
-    S-->>M: Collateral account frozen
+    R-->>M: No approval
+    M->>M: Record security alert
+    M->>S: Submit guardian freeze
+    S-->>M: Customer collateral frozen
 ```
 
-## Delivery and recovery
+## Prerequisites
 
-Parsed Streams delivery is at most once. The client tracks the last reconciled
-slot durably, reconnects with exponential backoff, and resubscribes after
-disconnects. After every subscription it:
+Follow [native setup](../docs/setup.md) for Node, pnpm, Rust, and the Solana
+CLI. The devnet fixture needs no Helius API key or public tunnel.
 
-1. Buffers live notifications.
-2. Reconciles transactions in the missed slot window.
-3. Persists and deduplicates recovered events.
-4. Advances the durable slot.
-5. Processes buffered live notifications.
-
-Devnet recovery uses `getSignaturesForAddress` and `getParsedTransaction` over
-the configured RPC. The mainnet production adapter uses the paginated Helius
-Parsed Events transaction-history endpoint. The client also applies the
-documented 60-second inactivity watchdog.
-
-Helius Parsed Streams and Parsed Events are served from mainnet endpoints.
-Consequently, the devnet end-to-end run uses `src/fixture-server.mjs`, a local
-WebSocket server that emits Parsed Streams-shaped notifications from confirmed
-devnet transactions. It exercises the same subscription parser, SQLite store,
-approval lookup, alerting, freeze transaction, reconnect, and recovery logic.
-The read-only smoke command verifies the real service separately.
-
-## Build and test
-
-Use Node 22.13 or newer, the pinned pnpm version, and a Rust toolchain
-compatible with `Cargo.lock`. Inside the managed Codex workspace:
+Run the following commands from `parsed-streams-monitor/`:
 
 ```sh
 pnpm install --frozen-lockfile --ignore-scripts
-pnpm test
-cargo test --locked
-bash scripts/build-sbf.sh
-BPF_OUT_DIR=target/deploy cargo test --locked --test collateral
+pnpm build
+pnpm demo --help
 ```
 
-The build script verifies the pinned Anza platform-tools archive before
-extracting it. The artifact is `target/deploy/rain_collateral_guard.so`.
+## Configuration
 
-## Configure devnet
-
-Copy `.env.example` to an external file and load it into the shell. Keep every
-keypair outside this checkout. The managed workspace already provides the demo
-deployer, customer, attacker, guardian, and the dedicated
-`demo-collateral-program` identity through its wallet registry.
-
-Required development variables include:
-
-| Variable | Purpose |
-| --- | --- |
-| `RPC_URL` | Devnet RPC URL |
-| `COLLATERAL_PROGRAM_ID` | Deployed collateral program address |
-| `COLLATERAL` | The current victim collateral PDA |
-| `DEPLOYER_KEYPAIR` | External deployment authority |
-| `PROGRAM_KEYPAIR` | External program identity |
-| `CUSTOMER_KEYPAIR` | Customer and initial collateral admin |
-| `ATTACKER_KEYPAIR` | Attacker used by the malicious commands |
-| `BOT_KEYPAIR` | Fixed guardian used for freeze transactions |
-| `DB_PATH` | SQLite approval, job, alert, and reconciliation state |
-| `FIXTURE_PORT` | Local devnet fixture port |
-
-Deploy the independent program:
+Create separate devnet keys outside the checkout:
 
 ```sh
-bash scripts/deploy-devnet.sh
+export DEMO_HOME="$HOME/.config/helius-security-demo/parsed-streams"
+mkdir -p "$DEMO_HOME"
+for role in deployer program customer attacker guardian approved-admin; do
+  solana-keygen new --no-bip39-passphrase --silent --outfile "$DEMO_HOME/$role.json"
+done
+cp .env.example "$DEMO_HOME/demo.env"
 ```
 
-Create and fund a fresh account, then put the printed address in
-`COLLATERAL`:
+Edit that external file. Keep `STREAM_MODE=fixture`.
+
+| Variable                               | Value                                                                               |
+| -------------------------------------- | ----------------------------------------------------------------------------------- |
+| `RPC_URL`                              | Devnet RPC with WebSocket support                                                   |
+| `COLLATERAL_PROGRAM_ID`                | Output of `solana-keygen pubkey "$DEMO_HOME/program.json"`                          |
+| `DEPLOYER_KEYPAIR`, `PROGRAM_KEYPAIR`  | Absolute paths to `deployer.json`, `program.json`                                   |
+| `CUSTOMER_KEYPAIR`, `ATTACKER_KEYPAIR` | Absolute paths to `customer.json`, `attacker.json`                                  |
+| `BOT_KEYPAIR`                          | Absolute path to `guardian.json`                                                    |
+| `DB_PATH`                              | An absolute SQLite path, shared by CLI and bot, such as `$DEMO_HOME/monitor.sqlite` |
+| `FIXTURE_PORT`, `STREAM_URL`           | Matching local port and URL; the example uses `3100` and `ws://127.0.0.1:3100`      |
+| `COLLATERAL`                           | Leave empty until initialization prints the address                                 |
+
+[Fund the devnet roles](../docs/setup.md#keys-and-funding). The approved admin
+only needs a public key for this scenario. Load the external file in **every
+terminal** used below:
 
 ```sh
-node src/cli.mjs init 20000000
-node src/cli.mjs state
+set -a
+source "$HOME/.config/helius-security-demo/parsed-streams/demo.env"
+set +a
 ```
 
-## Run the devnet proof
+## Deploy and initialize
 
-Start the protocol fixture in one terminal:
+Set `COLLATERAL_LAMPORTS` in your shell to your chosen positive integer deposit
+in lamports before running:
 
 ```sh
-node src/fixture-server.mjs
+pnpm deploy:devnet
+pnpm demo init "$COLLATERAL_LAMPORTS"
 ```
 
-Use a configuration with `STREAM_MODE=fixture` and point `STREAM_URL` at the
-fixture's printed `ws://127.0.0.1:<port>` URL. Start the guardian in a second
-terminal:
+Choose `COLLATERAL_LAMPORTS` as a positive integer deposit in lamports.
+Initialization pays account rent separately and prints `export COLLATERAL=...`.
+Run that export and save the address in the external environment file.
 
 ```sh
-node src/bot.mjs
+pnpm demo state
+pnpm demo withdraw "$WITHDRAWAL_LAMPORTS"
 ```
 
-Exercise an approved admin insertion. The bot records the exact transaction
-signature before broadcast and must not freeze:
+Expected: unfrozen collateral and a confirmed withdrawal by the customer. Choose
+a positive withdrawal amount within the spendable balance.
+
+## Start monitoring
+
+1. **Terminal 1:** load the environment and run `pnpm fixture`.
+2. **Terminal 2:** load the environment and run `pnpm bot`.
+3. **Terminal 3:** load the same environment and run the scenarios below.
+
+The bot subscribes, recovers missed transactions, and processes live events. Its
+JSON logs identify subscriptions, recovered events, alerts, and freezes.
+
+## Scenarios
+
+**Approved admin insertion.** Register the new admin before broadcasting:
 
 ```sh
-node src/cli.mjs approved-add "$LEGITIMATE_ADMIN_PUBLIC_KEY"
-node src/cli.mjs jobs
-node src/cli.mjs state
+pnpm demo approved-add "$(solana-keygen pubkey "$HOME/.config/helius-security-demo/parsed-streams/approved-admin.json")"
+pnpm demo jobs
+pnpm demo state
 ```
 
-For recovery and containment, stop the fixture and submit an unapproved admin
-insertion while disconnected:
+Expected: an `approved` job and `frozen: false`. The CLI and bot must use the
+same `DB_PATH`. Each admin can only be added once.
+
+**Recovery and containment.** Stop the fixture in Terminal 1, leaving the bot
+running. In Terminal 3:
 
 ```sh
-node src/cli.mjs attack-add
+pnpm demo attack-add
 ```
 
-Restart the fixture. The bot reconnects, reconciles the missed devnet slot
-window, emits an unauthorized-admin alert, freezes the collateral account, and
-records the result:
+Restart `pnpm fixture` in Terminal 1. The bot reconnects, recovers the missed
+insertion from devnet history, emits an alert, and freezes the account:
 
 ```sh
-node src/cli.mjs wait-frozen
-node src/cli.mjs expect-frozen-withdraw
-node src/cli.mjs jobs
-node src/cli.mjs alerts
+pnpm demo wait-frozen
+pnpm demo expect-frozen-withdraw
+pnpm demo jobs
+pnpm demo alerts
 ```
 
-`expect-frozen-withdraw` submits the attacker's withdrawal on-chain and requires
-the `Frozen` custom error and an unchanged collateral balance. A second
-collateral account can be initialized under a different customer; freezing the
-first account does not affect the second.
+Expected: a durable alert, a frozen account, and an on-chain `Frozen` error from
+the attacker's withdrawal. The collateral balance stays unchanged.
 
-On another fresh account, demonstrate the remaining race:
+**Account isolation.** A different customer's collateral has its own guardian
+and freeze state. The
+[historical proof](docs/live-devnet-proof.md#account-isolation) shows a
+successful control-account withdrawal after the victim was frozen.
+
+**Atomic attack.** Stop the fixture and bot. Initialize a fresh account with
+`pnpm demo init "$COLLATERAL_LAMPORTS"`, update `COLLATERAL` in your terminal
+and environment file, then run:
 
 ```sh
-node src/cli.mjs attack-atomic
+pnpm demo attack-atomic
 ```
 
-The insertion and withdrawal execute atomically before any confirmed stream or
-recovery event can respond. Parsed Streams cannot intervene between those
-instructions.
+Expected: the admin insertion and withdrawal succeed atomically, draining the
+spendable balance before a stream event can trigger a freeze. To monitor another
+fresh account, restart both the fixture and bot with its new address.
 
-## Mainnet service smoke test
+## Limitations
 
-The smoke test is read-only. It calls `describeProgram` for Jupiter, subscribes
-to Jupiter `route` instructions over the real Parsed Streams endpoint, prints
-one public signature and slot, and exits. It does not submit a mainnet
-transaction.
+- Monitoring cannot interrupt an atomic transaction or undo funds already moved.
+  Separate withdrawals can also beat the response.
+- Reconnect recovery closes historical gaps after service returns; it cannot
+  protect funds while the monitor is offline.
+- A missed approval or compromised guardian can cause a one-way freeze. The
+  separate upgrade authority can replace the program.
+- Alerts are local structured records; no pager, email, or chat integration is
+  included.
 
-Provide `HELIUS_API_KEY` through the external environment; the key is never
-printed or persisted by the project.
-
-```sh
-HELIUS_API_KEY=... pnpm smoke
-```
-
-Use `STREAM_MODE=parsed`, a mainnet `RPC_URL`, the mainnet Parsed Events URL,
-and an externally supplied API key only when running the production recovery
-adapter against a real mainnet deployment.
-
-## Boundaries
-
-- A compromised guardian can freeze customer accounts incorrectly, and a lost
-  guardian key removes the automatic freeze capability.
-- The upgrade authority can replace the program and bypass its rules.
-- Parsed Streams delivery, WebSocket uptime, and recovery API availability affect
-  detection latency. Historical recovery happens after a disconnect and cannot
-  undo funds moved before the gap.
-- An admin insertion and withdrawal in one transaction cannot be interrupted.
-- A missed legitimate authorization in the registry causes a false positive and
-  a one-way freeze.
-- Alerts are durable structured local records. No Slack, email, or pager
-  integration is included.
+For the real-service smoke check and mainnet adapter details, see
+[Helius service integration](docs/helius-service.md). For local tests and
+`--json` output, see [development](../docs/development.md).
